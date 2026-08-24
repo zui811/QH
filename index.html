@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>桌面便笺</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="app" class="widget editing">
+    <div class="background"></div>
+    <header class="titlebar">
+      <div class="brand"><span class="brand-dot"></span><span>桌面便笺</span></div>
+      <div class="window-actions">
+        <button id="pinBtn" title="置顶">◇</button>
+        <button id="settingsBtn" title="外观">◐</button>
+        <button id="minBtn" title="最小化">—</button>
+        <button id="closeBtn" title="退出">×</button>
+      </div>
+    </header>
+
+    <section id="editorMode" class="editor-mode">
+      <aside class="sidebar">
+        <nav class="type-tabs">
+          <button class="type-tab active" data-type="notes">记事本</button>
+          <button class="type-tab" data-type="tasks">任务册</button>
+        </nav>
+        <div class="side-label">分类</div>
+        <div id="categoryList" class="category-list"></div>
+        <button id="addCategoryBtn" class="add-category">＋ 新建分类</button>
+      </aside>
+      <section class="workspace">
+        <div class="workspace-head">
+          <div><div class="eyebrow" id="currentType">记事本</div><h1 id="currentCategory">工作</h1></div>
+        </div>
+        <div id="notesPanel" class="panel active">
+          <textarea id="noteInput" placeholder="写下此刻需要记住的事……"></textarea>
+          <div class="note-footer"><span id="savedState">已自动保存</span><span id="charCount">0 字</span></div>
+        </div>
+        <div id="tasksPanel" class="panel">
+          <button id="addTaskBtn" class="primary-btn">＋ 添加任务</button>
+          <div id="taskList" class="task-list"></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="settingsPanel" class="settings-panel">
+      <div class="settings-head"><strong>外观设置</strong><button id="settingsClose">×</button></div>
+      <label>背景透明度 <output id="opacityValue">78%</output><input id="opacityInput" type="range" min="0" max="100" step="1" value="78"></label>
+      <button id="transparentBtn" class="transparent-btn">设为完全透明（0%）</button>
+      <label>文字颜色 <input id="textColor" type="color" value="#fff8e7"></label>
+      <div class="setting-row"><button id="chooseBgBtn">选择背景图片</button><button id="clearBgBtn">清除背景</button></div>
+      <label class="check-row"><input id="compactToggle" type="checkbox"> 隐藏标题栏</label>
+      <label class="check-row"><input id="autoLaunchToggle" type="checkbox" checked> 开机自动启动</label>
+      <div class="settings-divider"></div>
+      <label class="check-row"><input id="aspectLockToggle" type="checkbox"> 锁定窗口长宽比</label>
+      <label id="aspectPresetRow">窗口比例
+        <select id="aspectPreset">
+          <option value="9:16">9 : 16</option>
+          <option value="1:1">1 : 1</option>
+          <option value="16:9">16 : 9</option>
+          <option value="4:3">4 : 3</option>
+          <option value="3:4">3 : 4</option>
+          <option value="custom">自定义</option>
+        </select>
+      </label>
+      <div id="customAspectRow" class="custom-aspect-row">
+        <input id="customAspectWidth" type="number" min="1" step="1" value="9" aria-label="自定义比例宽">
+        <span>:</span>
+        <input id="customAspectHeight" type="number" min="1" step="1" value="16" aria-label="自定义比例高">
+      </div>
+      <div class="setting-row window-scale-row"><button id="shrinkWindowBtn">缩小 10%</button><button id="growWindowBtn">放大 10%</button></div>
+      <div class="resize-tip">拖动窗口右下角调整大小</div>
+    </section>
+    <div id="resizeHandle" class="resize-handle" title="拖动调整窗口大小"></div>
+  </main>
+
+  <dialog id="categoryDialog">
+    <form method="dialog">
+      <h2 id="categoryDialogTitle">新建分类</h2>
+      <label>分类名称<input id="categoryName" maxlength="12" required></label>
+      <label>标签颜色<input id="categoryColor" type="color" value="#ffb86b"></label>
+      <div class="dialog-actions"><button id="cancelCategoryBtn" type="button">取消</button><button id="saveCategoryBtn" value="default">保存</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="taskDialog">
+    <form method="dialog">
+      <h2 id="taskDialogTitle">添加任务</h2>
+      <label>任务名称<input id="taskTitle" maxlength="60" required></label>
+      <div class="form-grid">
+        <label>严重程度<select id="taskSeverity"><option value="low">低</option><option value="medium" selected>中</option><option value="high">高</option><option value="urgent">紧急</option></select></label>
+        <label>顺序<input id="taskOrder" type="number" value="1" min="1" step="1"></label>
+        <label>开始时间<input id="taskStart" type="datetime-local"></label>
+        <label>截止时间<input id="taskDue" type="datetime-local"></label>
+      </div>
+      <label>备注<textarea id="taskNote" rows="3"></textarea></label>
+      <div class="dialog-actions"><button id="cancelTaskBtn" type="button">取消</button><button id="saveTaskBtn" value="default">添加</button></div>
+    </form>
+  </dialog>
+  <script src="renderer.js"></script>
+</body>
+</html>

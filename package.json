@@ -1,0 +1,50 @@
+{
+  "name": "desktop-note",
+  "version": "1.9.0",
+  "description": "透明桌面记事本与任务册",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check main.js && node --check preload.js && node --check renderer.js",
+    "build:exe": "electron-builder --win nsis && node scripts/cleanup-old-versions.js"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^26.15.3"
+  },
+  "allowScripts": {
+    "electron@37.10.3": true
+  },
+  "build": {
+    "appId": "com.qianhuan.desktopnote",
+    "productName": "千幻桌面便笺",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "index.html",
+      "styles.css",
+      "assets/app-icon.ico",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/app-icon.ico",
+      "artifactName": "千幻桌面便笺-安装版-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "packElevateHelper": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "千幻桌面便笺",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}
