@@ -31,7 +31,7 @@ let clipboardSettings = { ...DEFAULT_CLIPBOARD_SETTINGS };
 let shortcutStatus = { open: false, direct: [] };
 
 const preferredLogDirectory = app.isPackaged
-  ? path.join(path.dirname(process.execPath), 'logs')
+  ? path.join(path.dirname(process.execPath), 'dist', 'logs')
   : path.join(__dirname, 'dist', 'logs');
 const fallbackLogDirectory = path.join(app.getPath('userData'), 'logs');
 const activeLogDirectory = initLogger(preferredLogDirectory, fallbackLogDirectory);
