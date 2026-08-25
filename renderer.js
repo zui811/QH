@@ -2,6 +2,8 @@ const $ = id => document.getElementById(id);
 const NO_DUE_DATE = Number.MAX_SAFE_INTEGER;
 const MIN_WINDOW_WIDTH = 220;
 const MIN_WINDOW_HEIGHT = 260;
+const MIN_ASPECT_RATIO = 0.2;
+const MAX_ASPECT_RATIO = 5;
 const initial = {
   categories: [
     { id: 'work', name: '工作', color: '#ffb86b' },
@@ -14,14 +16,32 @@ const initial = {
 };
 let state;
 try { state = { ...initial, ...JSON.parse(localStorage.getItem('desktop-note-state') || '{}') }; } catch { state = initial; }
-state.categories ||= initial.categories; state.notes ||= {}; state.tasks ||= []; state.appearance={...initial.appearance,...(state.appearance||{})};
+const validObject = value => value && typeof value === 'object' && !Array.isArray(value);
+state.categories = Array.isArray(state.categories)
+  ? state.categories.filter(category => validObject(category) && typeof category.id === 'string' && category.id && typeof category.name === 'string' && category.name.trim()).map(category => ({ id: category.id, name: category.name.trim().slice(0, 12), color: /^#[0-9a-f]{6}$/i.test(category.color) ? category.color : '#ffb86b' }))
+  : [];
+if (!state.categories.length) state.categories = initial.categories.map(category => ({ ...category }));
+state.notes = validObject(state.notes) ? state.notes : {};
+for (const category of state.categories) state.notes[category.id] = typeof state.notes[category.id] === 'string' ? state.notes[category.id] : '';
+const validCategoryIds = new Set(state.categories.map(category => category.id));
+state.tasks = Array.isArray(state.tasks) ? state.tasks.filter(task => validObject(task) && typeof task.id === 'string' && validCategoryIds.has(task.categoryId)).map(task => ({ ...task, title: typeof task.title === 'string' ? task.title.slice(0, 60) : '', note: typeof task.note === 'string' ? task.note : '', order: Number.isInteger(Number(task.order)) && Number(task.order) >= 1 ? Number(task.order) : 1, severity: ['low','medium','high','urgent'].includes(task.severity) ? task.severity : 'medium', start: typeof task.start === 'string' ? task.start : '', due: typeof task.due === 'string' ? task.due : '', done: Boolean(task.done) })) : [];
+state.appearance = { ...initial.appearance, ...(validObject(state.appearance) ? state.appearance : {}) };
+state.appearance.opacity = Number.isFinite(Number(state.appearance.opacity)) ? Math.max(0, Math.min(100, Number(state.appearance.opacity))) : initial.appearance.opacity;
+state.appearance.textColor = /^#[0-9a-f]{6}$/i.test(state.appearance.textColor) ? state.appearance.textColor : initial.appearance.textColor;
+state.appearance.background = typeof state.appearance.background === 'string' ? state.appearance.background : '';
+state.appearance.aspectPreset = ['9:16','1:1','16:9','4:3','3:4','custom'].includes(state.appearance.aspectPreset) ? state.appearance.aspectPreset : '9:16';
+state.appearance.customAspectWidth = Math.max(1, Math.min(1000, Number(state.appearance.customAspectWidth) || 9));
+state.appearance.customAspectHeight = Math.max(1, Math.min(1000, Number(state.appearance.customAspectHeight) || 16));
+if (!state.categories.some(category => category.id === state.currentCategory)) state.currentCategory = state.categories[0].id;
+if (!['notes','tasks','clipboard'].includes(state.currentType)) state.currentType = 'notes';
 let categoryEditing = null;
 let taskEditing = null;
 let clipboardItems = [];
 let clipboardSettings = {};
 let clipboardShortcuts = { open: false, direct: [] };
 let clipboardSelection = 0;
-const persist = () => localStorage.setItem('desktop-note-state', JSON.stringify(state));
+const showSaveError = message => { const output = $('savedState'); if (output) { output.textContent = message; output.title = message; } };
+const persist = () => { try { localStorage.setItem('desktop-note-state', JSON.stringify(state)); return true; } catch { showSaveError('本地保存失败'); return false; } };
 const currentCat = () => state.categories.find(c => c.id === state.currentCategory) || state.categories[0];
 const fmt = value => {
   if (!value) return '';
@@ -49,9 +69,10 @@ function applyAppearance() {
 }
 function currentAspectRatio(){
   const a=state.appearance;
-  if(a.aspectPreset==='custom')return Math.max(1,Number(a.customAspectWidth)||1)/Math.max(1,Number(a.customAspectHeight)||1);
+  if(a.aspectPreset==='custom')return Math.max(MIN_ASPECT_RATIO,Math.min(MAX_ASPECT_RATIO,Math.max(1,Number(a.customAspectWidth)||1)/Math.max(1,Number(a.customAspectHeight)||1)));
   const [width,height]=(a.aspectPreset||'9:16').split(':').map(Number);
-  return width/height;
+  const ratio=width/height;
+  return Number.isFinite(ratio)?Math.max(MIN_ASPECT_RATIO,Math.min(MAX_ASPECT_RATIO,ratio)):9/16;
 }
 function updateAspectControls(){
   const locked=!!state.appearance.aspectLock;
@@ -129,7 +150,7 @@ function saveTask(){
   $('taskDue').setCustomValidity('');
   const values={title,severity:$('taskSeverity').value,order,start,due,note:$('taskNote').value.trim()};
   if(taskEditing) Object.assign(taskEditing,values); else state.tasks.push({id:`task-${Date.now()}`,categoryId:state.currentCategory,...values,done:false});
-  persist(); $('taskDialog').close(); taskEditing=null; renderTasks();
+  if(!persist()){window.alert('任务未能写入本地存储，请检查磁盘空间或应用权限。');return} $('taskDialog').close(); taskEditing=null; renderTasks();
 }
 
 const clipboardTypeLabel={text:'文本',rich:'富文本',image:'图片',files:'文件'};
@@ -144,7 +165,7 @@ function renderClipboard(){
   if(!items.length){list.innerHTML='<div class="clipboard-empty">暂无记录。复制文字或图片后会自动出现在这里。</div>';return}
   items.forEach((item,index)=>{
     const card=document.createElement('article');card.className=`clipboard-card${index===clipboardSelection?' selected':''}`;card.dataset.id=item.id;
-    const time=new Intl.DateTimeFormat('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(item.createdAt));
+    const time=fmt(item.createdAt)||'时间未知';
     card.innerHTML=`<div class="clipboard-index">${index<9?index+1:'·'}</div><div class="clipboard-content"><div class="clipboard-meta"><span>${clipboardTypeLabel[item.type]||'内容'}</span><span>${item.source||'未知应用'} · ${time}</span></div><div class="clipboard-preview"></div></div><div class="clipboard-actions"><button class="clip-pin" title="收藏">${item.pinned?'★':'☆'}</button><button class="clip-plain" title="粘贴为纯文本">T</button><button class="clip-delete" title="删除">×</button></div>`;
     const preview=card.querySelector('.clipboard-preview');
     if(item.type==='image'&&item.imageData){const img=document.createElement('img');img.src=item.imageData;img.alt='剪贴板图片';preview.appendChild(img)}else preview.textContent=item.text||'(无文本预览)';
@@ -167,10 +188,10 @@ async function initClipboard(){
 }
 
 document.querySelectorAll('.type-tab').forEach(b=>b.onclick=()=>{state.currentType=b.dataset.type;persist();render()});
-$('noteInput').oninput=e=>{state.notes[state.currentCategory]=e.target.value;$('charCount').textContent=`${e.target.value.length} 字`;$('savedState').textContent='保存中…';persist();setTimeout(()=>$('savedState').textContent='已自动保存',300)};
+$('noteInput').oninput=e=>{state.notes[state.currentCategory]=e.target.value;$('charCount').textContent=`${e.target.value.length} 字`;$('savedState').textContent='保存中…';if(persist())setTimeout(()=>$('savedState').textContent='已自动保存',300)};
 $('addCategoryBtn').onclick=()=>openCategory();
 $('cancelCategoryBtn').onclick=()=>{$('categoryDialog').close();categoryEditing=null;$('categoryName').setCustomValidity('')};
-$('saveCategoryBtn').onclick=e=>{e.preventDefault();const name=$('categoryName').value.trim();if(!name)return;if(categoryEditing){categoryEditing.name=name;categoryEditing.color=$('categoryColor').value}else{const id=`cat-${Date.now()}`;state.categories.push({id,name,color:$('categoryColor').value});state.notes[id]='';state.currentCategory=id}persist();$('categoryDialog').close();render()};
+$('saveCategoryBtn').onclick=e=>{e.preventDefault();const name=$('categoryName').value.trim();if(!name)return;if(categoryEditing){categoryEditing.name=name;categoryEditing.color=$('categoryColor').value}else{const id=`cat-${Date.now()}`;state.categories.push({id,name,color:$('categoryColor').value});state.notes[id]='';state.currentCategory=id}if(!persist()){window.alert('分类未能写入本地存储，请检查磁盘空间或应用权限。');return}$('categoryDialog').close();render()};
 $('addTaskBtn').onclick=()=>openTask();
 $('cancelTaskBtn').onclick=()=>{$('taskDialog').close();taskEditing=null;$('taskDue').setCustomValidity('');$('taskOrder').setCustomValidity('')};
 $('saveTaskBtn').onclick=e=>{e.preventDefault();saveTask()};
@@ -194,10 +215,15 @@ $('aspectLockToggle').onchange=e=>{state.appearance.aspectLock=e.target.checked;
 $('aspectPreset').onchange=e=>{state.appearance.aspectPreset=e.target.value;persist();updateAspectControls();resizeToCurrentAspect()};
 function updateCustomAspect(){
   const width=Number($('customAspectWidth').value),height=Number($('customAspectHeight').value);
-  if(width<1||height<1)return;
+  const ratio=width/height;
+  if(!Number.isFinite(width)||!Number.isFinite(height)||width<1||height<1||width>1000||height>1000||ratio<MIN_ASPECT_RATIO||ratio>MAX_ASPECT_RATIO){
+    $('customAspectWidth').setCustomValidity('比例范围须在 1:5 到 5:1 之间，单项不超过 1000');
+    $('customAspectWidth').reportValidity();return;
+  }
+  $('customAspectWidth').setCustomValidity('');
   state.appearance.customAspectWidth=width;state.appearance.customAspectHeight=height;persist();resizeToCurrentAspect();
 }
-$('customAspectWidth').onchange=updateCustomAspect;$('customAspectHeight').onchange=updateCustomAspect;
+$('customAspectWidth').oninput=e=>e.target.setCustomValidity('');$('customAspectHeight').oninput=()=> $('customAspectWidth').setCustomValidity('');$('customAspectWidth').onchange=updateCustomAspect;$('customAspectHeight').onchange=updateCustomAspect;
 $('chooseBgBtn').onclick=async()=>{try{const file=await window.desktopAPI.chooseBackground();if(file){state.appearance.background=file;persist();applyAppearance()}}catch{$('chooseBgBtn').title='无法打开背景图片选择器'}}; $('clearBgBtn').onclick=()=>{state.appearance.background='';persist();applyAppearance()};
 async function syncPinIcon(){try{$('pinBtn').textContent=await window.desktopAPI.isAlwaysOnTop()?'◆':'◇'}catch{$('pinBtn').textContent='◇'}}
 $('pinBtn').onclick=()=>{window.desktopAPI.windowAction('toggle-top');setTimeout(syncPinIcon,50)}; $('minBtn').onclick=()=>window.desktopAPI.windowAction('minimize'); $('closeBtn').onclick=()=>window.desktopAPI.windowAction('close');
@@ -242,7 +268,7 @@ $('shrinkWindowBtn').onclick=()=>scaleWindow(.9);$('growWindowBtn').onclick=()=>
 $('clipboardSearch').oninput=()=>{clipboardSelection=0;renderClipboard()};
 $('clipboardOptionsBtn').onclick=()=>$('clipboardOptions').classList.toggle('open');
 $('clipboardPauseBtn').onclick=async()=>{try{const data=await window.desktopAPI.updateClipboardSettings({paused:!clipboardSettings.paused});clipboardSettings=data.settings;clipboardShortcuts=data.shortcuts;applyClipboardOptions();renderClipboard()}catch{}};
-$('saveClipboardOptions').onclick=async()=>{const excludedApps=$('clipboardExcludedApps').value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);try{const data=await window.desktopAPI.updateClipboardSettings({maxItems:Number($('clipboardMaxItems').value),expireDays:Number($('clipboardExpireDays').value),persistHistory:$('clipboardPersist').checked,directPaste:$('clipboardDirectPaste').checked,openShortcut:$('clipboardOpenShortcut').value.trim()||'CommandOrControl+Shift+V',excludedApps});clipboardSettings=data.settings;clipboardShortcuts=data.shortcuts;applyClipboardOptions();$('clipboardOptions').classList.remove('open')}catch{$('clipboardShortcutStatus').textContent='保存失败，请检查快捷键格式'}};
+$('saveClipboardOptions').onclick=async()=>{const excludedApps=$('clipboardExcludedApps').value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);try{const data=await window.desktopAPI.updateClipboardSettings({maxItems:Number($('clipboardMaxItems').value),expireDays:Number($('clipboardExpireDays').value),persistHistory:$('clipboardPersist').checked,directPaste:$('clipboardDirectPaste').checked,openShortcut:$('clipboardOpenShortcut').value.trim()||'CommandOrControl+Shift+V',excludedApps});clipboardSettings=data.settings;clipboardShortcuts=data.shortcuts;applyClipboardOptions();if(data.saved===false){$('clipboardShortcutStatus').textContent='设置未能写入磁盘，请检查空间或权限';return}$('clipboardOptions').classList.remove('open')}catch{$('clipboardShortcutStatus').textContent='保存失败，请检查快捷键格式'}};
 $('clearClipboardBtn').onclick=async()=>{if(!window.confirm('确定清空所有未收藏的剪贴板记录吗？收藏项会保留。'))return;try{clipboardItems=await window.desktopAPI.clearClipboardHistory();renderClipboard()}catch{}};
 document.addEventListener('keydown',e=>{
   if(state.currentType!=='clipboard'||$('categoryDialog').open||$('taskDialog').open)return;
@@ -256,6 +282,7 @@ document.addEventListener('keydown',e=>{
 window.desktopAPI.onClipboardHistoryChanged(items=>{clipboardItems=items;renderClipboard()});
 window.desktopAPI.onShowClipboardHistory(()=>{state.currentType='clipboard';persist();render();setTimeout(()=>$('clipboardSearch').focus(),60)});
 window.desktopAPI.onClipboardShortcutStatus(status=>{clipboardShortcuts=status;renderClipboardShortcutStatus()});
+window.desktopAPI.onPersistenceError(message=>{showSaveError(message);$('clipboardShortcutStatus').textContent=message});
 render();
 syncPinIcon();
 initAutoLaunch();

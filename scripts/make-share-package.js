@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const AdmZip = require('adm-zip');
 
 // 生成分享包：把最新的安装版 exe 打成标准 zip（zip 内为该 exe 本身，顶层，与 dist 现有产物一致）。
@@ -22,8 +23,14 @@ try {
   const zip = new AdmZip();
   zip.addLocalFile(exePath, '', exeName); // 顶层 entry，中文名
   zip.writeZip(zipPath);
+  const verifier = new AdmZip(zipPath);
+  const entries = verifier.getEntries().filter(entry => !entry.isDirectory);
+  if (entries.length !== 1 || entries[0].entryName !== exeName) throw new Error('分享包内容结构不正确');
+  const sourceHash = crypto.createHash('sha256').update(fs.readFileSync(exePath)).digest('hex');
+  const archivedHash = crypto.createHash('sha256').update(entries[0].getData()).digest('hex');
+  if (sourceHash !== archivedHash) throw new Error('ZIP 内安装程序与原文件哈希不一致');
   const sizeMB = (fs.statSync(zipPath).size / 1048576).toFixed(1);
-  console.log(`已生成分享包: ${zipName} (${sizeMB} MB)`);
+  console.log(`已生成并校验分享包: ${zipName} (${sizeMB} MB, SHA-256 ${sourceHash})`);
 } catch (e) {
   console.error('生成分享包失败:', e.message);
   process.exit(1);
