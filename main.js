@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, clipboard, globalShortcut, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, clipboard, globalShortcut, nativeImage, shell } = require('electron');
 const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { initLogger, log, getLogDirectory } = require('./logger');
 
 const MIN_WINDOW_WIDTH = 220;
 const MIN_WINDOW_HEIGHT = 260;
@@ -28,6 +29,14 @@ let pickerTargetHandle = '';
 let clipboardItems = [];
 let clipboardSettings = { ...DEFAULT_CLIPBOARD_SETTINGS };
 let shortcutStatus = { open: false, direct: [] };
+
+initLogger(app.getPath('userData'));
+log('main', 'info', 'Application process started', { version: app.getVersion(), platform: process.platform, arch: process.arch });
+process.on('uncaughtException', error => {
+  log('main', 'error', 'Uncaught exception', error);
+  setImmediate(() => app.quit());
+});
+process.on('unhandledRejection', reason => log('main', 'error', 'Unhandled rejection', reason instanceof Error ? reason : { reason: String(reason) }));
 
 const historyPath = () => path.join(app.getPath('userData'), 'clipboard-history.json');
 const settingsPath = () => path.join(app.getPath('userData'), 'clipboard-settings.json');
@@ -56,6 +65,7 @@ function writeJson(file, value) {
   }
 }
 function notifyPersistenceError(message) {
+  log('main', 'error', 'Persistence operation failed', { message });
   if (win && !win.isDestroyed()) win.webContents.send('persistence-error', message);
 }
 function normalizeSettings(raw) {
@@ -163,7 +173,8 @@ function readFileDropPaths(callback) {
 function addClipboardItem(payload) {
   const item = normalizeClipboardItem(payload);
   if (!item) {
-    notifyPersistenceError('剪贴板内容超过 20 MB，已跳过记录。');
+    log('main', 'warn', 'Clipboard item skipped because it exceeded the size limit');
+    if (win && !win.isDestroyed()) win.webContents.send('persistence-error', '剪贴板内容超过 20 MB，已跳过记录。');
     return;
   }
   const existing = clipboardItems.find(entry => entry.hash === item.hash);
@@ -308,6 +319,7 @@ function registerClipboardShortcuts() {
       } catch {}
     }
   }
+  log('main', shortcutStatus.open ? 'info' : 'warn', 'Clipboard shortcuts registered', { openShortcut: clipboardSettings.openShortcut, openAvailable: shortcutStatus.open, directAvailable: shortcutStatus.direct.length });
   win?.webContents.send('clipboard-shortcut-status', shortcutStatus);
 }
 function createTray() {
@@ -322,6 +334,7 @@ function createTray() {
     { label: '退出', click: () => app.quit() }
   ]));
   tray.on('click', showWindow);
+  log('main', 'info', 'System tray created');
 }
 function loginOptions(openAtLogin) {
   const portablePath = process.env.PORTABLE_EXECUTABLE_FILE;
@@ -347,24 +360,37 @@ function createWindow() {
   win.setAlwaysOnTop(false);
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false });
   win.loadFile('index.html');
+  win.webContents.on('render-process-gone', (_event, details) => log('main', 'error', 'Renderer process gone', { reason: details.reason, exitCode: details.exitCode }));
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => log('main', 'error', 'Renderer failed to load', { errorCode, errorDescription }));
+  log('main', 'info', 'Main window created', { width: 390, height: Math.min(720, area.height - 100) });
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
+  log('main', 'info', 'Another instance is already running; exiting');
   app.quit();
 } else {
-  app.on('second-instance', showWindow);
+  app.on('second-instance', () => { log('main', 'info', 'Second-instance launch redirected to the existing window'); showWindow(); });
   app.whenReady().then(() => {
+    log('main', 'info', 'Electron app ready');
     loadClipboardData();
+    log('main', 'info', 'Clipboard data loaded', { itemCount: clipboardItems.length, persistenceEnabled: clipboardSettings.persistHistory });
+    ipcMain.on('renderer-log', (_event, level, message, details) => log('renderer', level, message, details));
+    ipcMain.handle('open-log-directory', async () => {
+      const error = await shell.openPath(getLogDirectory());
+      if (error) log('main', 'error', 'Failed to open log directory', { error });
+      else log('main', 'info', 'Log directory opened by user');
+      return error || '';
+    });
     ipcMain.handle('choose-background', async () => {
       const result = await dialog.showOpenDialog(win, { title: '选择背景图片', properties: ['openFile'], filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }] });
       return result.canceled ? null : result.filePaths[0];
     });
     ipcMain.on('window-action', (_event, action) => {
       if (!win) return;
-      if (action === 'close') app.quit();
-      if (action === 'minimize') win.hide();
-      if (action === 'toggle-top') win.setAlwaysOnTop(!win.isAlwaysOnTop());
+      if (action === 'close') { log('main', 'info', 'Application exit requested from window'); app.quit(); }
+      if (action === 'minimize') { win.hide(); log('main', 'debug', 'Window hidden'); }
+      if (action === 'toggle-top') { win.setAlwaysOnTop(!win.isAlwaysOnTop()); log('main', 'info', 'Always-on-top changed', { enabled: win.isAlwaysOnTop() }); }
     });
     ipcMain.handle('is-always-on-top', () => win?.isAlwaysOnTop() ?? false);
     ipcMain.handle('is-devtools-opened', () => win?.webContents.isDevToolsOpened() ?? false);
@@ -386,6 +412,7 @@ if (!hasSingleInstanceLock) {
       registerClipboardShortcuts();
       createTray();
       notifyClipboard();
+      log('main', saved ? 'info' : 'error', 'Clipboard settings updated', { saved, maxItems: clipboardSettings.maxItems, expireDays: clipboardSettings.expireDays, persistenceEnabled: clipboardSettings.persistHistory, directPasteEnabled: clipboardSettings.directPaste });
       return { settings: clipboardSettings, shortcuts: shortcutStatus, saved };
     });
     ipcMain.handle('clipboard-history:pin', (_event, id) => { const item = clipboardItems.find(entry => entry.id === id); if (item) item.pinned = !item.pinned; pruneClipboard(); saveClipboardHistory(); notifyClipboard(); return publicItems(); });
@@ -397,6 +424,6 @@ if (!hasSingleInstanceLock) {
     registerClipboardShortcuts();
     startClipboardMonitor();
   });
-  app.on('will-quit', () => { clearInterval(clipboardTimer); globalShortcut.unregisterAll(); });
+  app.on('will-quit', () => { log('main', 'info', 'Application shutting down'); clearInterval(clipboardTimer); globalShortcut.unregisterAll(); });
   app.on('window-all-closed', () => app.quit());
 }

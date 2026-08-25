@@ -46,8 +46,11 @@ let clipboardSelection = 0;
 let taskBatchMode = false;
 let selectedTaskIds = new Set();
 let confirmResolver = null;
+const reportLog = (level, message, details) => { try { window.desktopAPI.log(level, message, details); } catch {} };
+window.addEventListener('error',event=>reportLog('error','Renderer error',{message:event.message,line:event.lineno,column:event.colno}));
+window.addEventListener('unhandledrejection',event=>{const reason=event.reason;reportLog('error','Renderer unhandled rejection',{name:reason?.name,message:reason?.message||String(reason)})});
 const showSaveError = message => { const output = $('savedState'); if (output) { output.textContent = message; output.title = message; } };
-const persist = () => { try { localStorage.setItem('desktop-note-state', JSON.stringify(state)); return true; } catch { showSaveError('本地保存失败'); return false; } };
+const persist = () => { try { localStorage.setItem('desktop-note-state', JSON.stringify(state)); return true; } catch (error) { showSaveError('本地保存失败'); reportLog('error', 'Local state save failed', { name: error?.name, message: error?.message }); return false; } };
 const currentCat = () => state.categories.find(c => c.id === state.currentCategory) || state.categories[0];
 const fmt = value => {
   if (!value) return '';
@@ -149,7 +152,7 @@ function renderTasks() {
     card.querySelector('.batch-check').onchange=e=>{if(e.target.checked)selectedTaskIds.add(t.id);else selectedTaskIds.delete(t.id);renderTasks()};
     card.querySelector('.task-check').onchange=e=>{t.done=e.target.checked;persist();renderTasks()};
     card.querySelector('.task-edit').onclick=()=>openTask(t);
-    card.querySelector('.task-delete').onclick=async()=>{if(!await confirmTaskDeletion(`确定删除任务“${t.title}”吗？删除后无法恢复。`))return;const categoryId=t.categoryId;state.tasks=state.tasks.filter(x=>x.id!==t.id);selectedTaskIds.delete(t.id);resequenceCategory(categoryId);persist();renderTasks()};
+    card.querySelector('.task-delete').onclick=async()=>{if(!await confirmTaskDeletion(`确定删除任务“${t.title}”吗？删除后无法恢复。`))return;const categoryId=t.categoryId;state.tasks=state.tasks.filter(x=>x.id!==t.id);selectedTaskIds.delete(t.id);resequenceCategory(categoryId);persist();reportLog('info','Task deleted',{count:1});renderTasks()};
     card.onclick=e=>{if(taskBatchMode&&!e.target.closest('button,input')){if(selectedTaskIds.has(t.id))selectedTaskIds.delete(t.id);else selectedTaskIds.add(t.id);renderTasks()}};
     card.ondblclick=e=>{if(!taskBatchMode&&!e.target.closest('button,input'))openTask(t)};list.appendChild(card);
   });
@@ -158,12 +161,12 @@ function resequenceCategory(categoryId){
   state.tasks.filter(t=>t.categoryId===categoryId).sort((a,b)=>a.order-b.order).forEach((task,index)=>{task.order=index+1});
 }
 function exitTaskBatch(){taskBatchMode=false;selectedTaskIds.clear();renderTasks()}
-function setSelectedTasksDone(done){if(!selectedTaskIds.size)return;state.tasks.forEach(task=>{if(selectedTaskIds.has(task.id))task.done=done});persist();renderTasks()}
+function setSelectedTasksDone(done){if(!selectedTaskIds.size)return;const count=selectedTaskIds.size;state.tasks.forEach(task=>{if(selectedTaskIds.has(task.id))task.done=done});persist();reportLog('info','Tasks updated in batch',{count,done});renderTasks()}
 async function deleteSelectedTasks(){
   if(!selectedTaskIds.size)return;
   const count=selectedTaskIds.size;
   if(!await confirmTaskDeletion(`确定删除选中的 ${count} 个任务吗？删除后无法恢复。`))return;
-  const categoryId=state.currentCategory;state.tasks=state.tasks.filter(task=>!selectedTaskIds.has(task.id));selectedTaskIds.clear();resequenceCategory(categoryId);persist();renderTasks();
+  const categoryId=state.currentCategory;state.tasks=state.tasks.filter(task=>!selectedTaskIds.has(task.id));selectedTaskIds.clear();resequenceCategory(categoryId);persist();reportLog('info','Tasks deleted in batch',{count});renderTasks();
 }
 function render() {
   renderCategories(); const notes=state.currentType==='notes',tasks=state.currentType==='tasks',clips=state.currentType==='clipboard';
@@ -263,6 +266,7 @@ $('transparentBtn').onclick=()=>updateOpacity(0);
 $('textColor').oninput=e=>{state.appearance.textColor=e.target.value;persist();applyAppearance()}; $('compactToggle').onchange=e=>{state.appearance.compact=e.target.checked;persist();applyAppearance()};
 $('autoLaunchToggle').onchange=async e=>{const requested=e.target.checked;try{const enabled=await window.desktopAPI.setAutoLaunch(requested);e.target.checked=enabled;state.appearance.autoLaunch=enabled;persist()}catch{e.target.checked=!requested;e.target.title='无法修改开机启动设置';}};
 $('taskDeleteConfirmToggle').onchange=e=>{state.preferences.confirmTaskDelete=e.target.checked;persist()};
+$('openLogsBtn').onclick=async()=>{const output=$('logOpenState');try{const error=await window.desktopAPI.openLogDirectory();output.textContent=error?`打开失败：${error}`:'已打开日志目录'}catch(error){output.textContent='日志目录暂时无法打开';reportLog('error','Opening log directory failed',{name:error?.name,message:error?.message})}};
 $('aspectLockToggle').onchange=e=>{state.appearance.aspectLock=e.target.checked;persist();updateAspectControls();if(e.target.checked)resizeToCurrentAspect()};
 $('aspectPreset').onchange=e=>{state.appearance.aspectPreset=e.target.value;persist();updateAspectControls();resizeToCurrentAspect()};
 function updateCustomAspect(){
@@ -336,6 +340,7 @@ window.desktopAPI.onShowClipboardHistory(()=>{state.currentType='clipboard';pers
 window.desktopAPI.onClipboardShortcutStatus(status=>{clipboardShortcuts=status;renderClipboardShortcutStatus()});
 window.desktopAPI.onPersistenceError(message=>{showSaveError(message);$('clipboardShortcutStatus').textContent=message});
 render();
+reportLog('info','Renderer initialized',{categoryCount:state.categories.length,taskCount:state.tasks.length});
 syncPinIcon();
 initAutoLaunch();
 initClipboard();

@@ -1,11 +1,11 @@
 {
   "name": "desktop-note",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "透明桌面记事本、任务册与本地剪贴板历史",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check main.js && node --check preload.js && node --check renderer.js",
+    "check": "node --check main.js && node --check preload.js && node --check renderer.js && node --check logger.js",
     "build:exe": "electron-builder --win nsis && node scripts/make-share-package.js && node scripts/cleanup-old-versions.js"
   },
   "devDependencies": {
@@ -24,6 +24,7 @@
     },
     "files": [
       "main.js",
+      "logger.js",
       "preload.js",
       "renderer.js",
       "index.html",
