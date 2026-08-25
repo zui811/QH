@@ -40,7 +40,18 @@
           <div class="note-footer"><span id="savedState">已自动保存</span><span id="charCount">0 字</span></div>
         </div>
         <div id="tasksPanel" class="panel">
-          <button id="addTaskBtn" class="primary-btn">＋ 添加任务</button>
+          <div id="taskDefaultToolbar" class="task-default-toolbar">
+            <button id="addTaskBtn" class="primary-btn">＋ 添加任务</button>
+            <button id="batchTaskBtn" class="batch-entry-btn">批量处理</button>
+          </div>
+          <div id="taskBatchToolbar" class="task-batch-toolbar">
+            <span id="batchSelectedCount">已选 0 项</span>
+            <button id="selectAllTasksBtn">全选</button>
+            <button id="batchCompleteBtn">完成</button>
+            <button id="batchUncompleteBtn">未完成</button>
+            <button id="batchDeleteBtn" class="danger-text">删除</button>
+            <button id="exitBatchBtn">退出</button>
+          </div>
           <div id="taskList" class="task-list"></div>
         </div>
         <div id="clipboardPanel" class="panel clipboard-panel">
@@ -74,6 +85,7 @@
       <div class="setting-row"><button id="chooseBgBtn">选择背景图片</button><button id="clearBgBtn">清除背景</button></div>
       <label class="check-row"><input id="compactToggle" type="checkbox"> 隐藏标题栏</label>
       <label class="check-row"><input id="autoLaunchToggle" type="checkbox" checked> 开机自动启动</label>
+      <label class="check-row"><input id="taskDeleteConfirmToggle" type="checkbox" checked> 删除任务前提示</label>
       <div class="settings-divider"></div>
       <label class="check-row"><input id="aspectLockToggle" type="checkbox"> 锁定窗口长宽比</label>
       <label id="aspectPresetRow">窗口比例
@@ -118,6 +130,16 @@
       </div>
       <label>备注<textarea id="taskNote" rows="3"></textarea></label>
       <div class="dialog-actions"><button id="cancelTaskBtn" type="button">取消</button><button id="saveTaskBtn" value="default">添加</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="confirmDialog" class="confirm-dialog">
+    <form method="dialog">
+      <div class="confirm-symbol">!</div>
+      <h2 id="confirmTitle">确认操作</h2>
+      <p id="confirmMessage" class="confirm-message"></p>
+      <label id="disableTaskConfirmRow" class="confirm-option"><input id="disableTaskConfirm" type="checkbox"> 以后删除任务不再提示</label>
+      <div class="dialog-actions"><button id="confirmCancelBtn" type="button">取消</button><button id="confirmActionBtn" type="button" class="danger-confirm">删除</button></div>
     </form>
   </dialog>
   <script src="renderer.js"></script>

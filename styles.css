@@ -35,10 +35,25 @@ button { color:inherit; }
 #noteInput { flex:1; width:100%; border:0; outline:0; resize:none; background:transparent; color:inherit; line-height:1.7; font-size:15px; }
 #noteInput::placeholder { color:rgba(255,255,255,.28); }
 .note-footer { display:flex; justify-content:space-between; font-size:10px; opacity:.3; padding-top:8px; }
-.primary-btn { align-self:flex-start; margin-bottom:12px; transition:background .18s ease,box-shadow .18s ease,border-color .18s ease; }
+.primary-btn { align-self:flex-start; transition:background .18s ease,box-shadow .18s ease,border-color .18s ease; }
 .primary-btn:hover { background:var(--action-hover); box-shadow:0 0 16px rgba(130,170,255,.25); }
+.task-default-toolbar { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+.task-default-toolbar.hidden { display:none; }
+.batch-entry-btn,.task-batch-toolbar button { border:1px solid rgba(255,255,255,.12); border-radius:8px; padding:7px 9px; background:rgba(255,255,255,.07); color:inherit; cursor:pointer; font-size:10px; }
+.batch-entry-btn:hover,.task-batch-toolbar button:hover { background:rgba(255,255,255,.13); }
+.batch-entry-btn:disabled { opacity:.3; cursor:default; }
+.task-batch-toolbar { display:none; align-items:center; flex-wrap:wrap; gap:5px; margin-bottom:10px; padding:7px; border:1px solid rgba(175,203,255,.2); border-radius:10px; background:rgba(175,203,255,.07); }
+.task-batch-toolbar.active { display:flex; }
+.task-batch-toolbar span { margin-right:auto; font-size:10px; color:var(--action); }
+.task-batch-toolbar button:disabled { opacity:.3; cursor:default; }
+.task-batch-toolbar .danger-text { color:#ff8a9d; }
 .task-list { overflow:auto; display:grid; gap:8px; }
 .task-card { background:rgba(255,255,255,.065); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:11px; display:grid; grid-template-columns:auto 1fr auto; gap:9px; align-items:start; }
+.batch-check { display:none; accent-color:var(--action); margin-top:3px; }
+.task-list.batch-mode .task-card { grid-template-columns:auto 1fr; cursor:pointer; }
+.task-list.batch-mode .batch-check { display:block; }
+.task-list.batch-mode .task-check,.task-list.batch-mode .task-actions { display:none; }
+.task-card.batch-selected { border-color:rgba(175,203,255,.72); background:rgba(175,203,255,.12); box-shadow:0 0 14px rgba(130,170,255,.13); }
 .task-card.done { opacity:.42; }.task-card.done .task-title { text-decoration:line-through; }
 .task-check { accent-color:var(--accent); margin-top:3px; }.task-title { font-size:13px; }.task-meta { font-size:10px; opacity:.48; margin-top:5px; line-height:1.5; }
 .severity { font-size:9px; padding:3px 6px; border-radius:99px; }.severity.low{background:#75d69c33;color:#8debb0}.severity.medium{background:#ffc86b33;color:#ffd58d}.severity.high{background:#ff8b6233;color:#ff9e7c}.severity.urgent{background:#ff527133;color:#ff7b91}
@@ -54,6 +69,16 @@ button { color:inherit; }
 .custom-aspect-row input { width:72px; min-width:0; border:1px solid rgba(255,255,255,.1); border-radius:7px; background:rgba(255,255,255,.07); color:inherit; padding:6px; text-align:center; }
 .resize-tip { font-size:10px; opacity:.35; margin-top:8px; text-align:center; }
 dialog { width:330px; color:#f8f3e9; background:#232429; border:1px solid rgba(255,255,255,.13); border-radius:17px; padding:0; box-shadow:0 25px 80px rgba(0,0,0,.55); } dialog::backdrop{background:rgba(0,0,0,.48);backdrop-filter:blur(4px)} dialog form{padding:22px} dialog h2{margin:0 0 18px;font-size:18px} dialog label{display:grid;gap:7px;font-size:11px;opacity:.78;margin:11px 0} dialog input,dialog textarea,dialog select{width:100%;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:rgba(255,255,255,.07);color:inherit;padding:9px;outline:none} dialog option{background:#2b2c31}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.dialog-actions button{border:0;border-radius:9px;padding:8px 15px;background:rgba(255,255,255,.1);cursor:pointer}.dialog-actions button:last-child{background:var(--action);color:var(--action-text);font-weight:bold}.dialog-actions button:last-child:hover{background:var(--action-hover)}
+.confirm-dialog { width:min(340px,calc(100% - 24px)); text-align:center; }
+.confirm-dialog form { padding:24px; }
+.confirm-symbol { width:42px; height:42px; margin:0 auto 12px; display:grid; place-items:center; border-radius:50%; background:rgba(255,92,115,.14); color:#ff7e93; border:1px solid rgba(255,126,147,.34); font-size:22px; font-weight:800; }
+.confirm-dialog h2 { margin-bottom:9px; }
+.confirm-message { margin:0; color:rgba(255,255,255,.67); font-size:12px; line-height:1.65; white-space:pre-wrap; }
+.confirm-dialog .confirm-option { display:flex; grid-template-columns:none; justify-content:center; align-items:center; gap:7px; margin:17px 0 0; }
+.confirm-dialog .confirm-option[hidden] { display:none; }
+.confirm-dialog .confirm-option input { width:auto; accent-color:var(--action); }
+.confirm-dialog .danger-confirm { background:#ff7189!important; color:#251217!important; }
+.confirm-dialog .danger-confirm:hover { background:#ff91a4!important; }
 .compact .titlebar { opacity:0; height:20px; transition:.2s; }.compact .titlebar:hover{opacity:1}.compact .editor-mode{height:calc(100% - 20px)}
 .transparent-background.widget { background:transparent; border-color:transparent; box-shadow:none; }
 .transparent-background.widget::after { display:none; }
@@ -72,8 +97,11 @@ dialog { width:330px; color:#f8f3e9; background:#232429; border:1px solid rgba(2
 .display-only .workspace-head,
 .display-only .note-footer,
 .display-only .primary-btn,
+.display-only .task-default-toolbar,
+.display-only .task-batch-toolbar,
 .display-only .task-actions,
 .display-only .task-check,
+.display-only .batch-check,
 .display-only .settings-panel { display:none!important; }
 .display-only .titlebar { display:flex!important; height:24px; padding-right:8px; justify-content:flex-end; opacity:.42; }
 .display-only .titlebar:hover { opacity:1; }
@@ -84,6 +112,7 @@ dialog { width:330px; color:#f8f3e9; background:#232429; border:1px solid rgba(2
 .display-only .workspace { padding:24px 28px; }
 .display-only #noteInput { pointer-events:none; font-size:22px; font-weight:500; line-height:1.72; text-shadow:0 2px 10px rgba(0,0,0,.35); }
 .display-only .task-card { grid-template-columns:1fr; background:transparent; border-color:transparent; box-shadow:none; padding-left:0; padding-right:0; }
+.display-only .task-list.batch-mode .task-card { grid-template-columns:1fr; }
 .display-only .task-meta { font-size:12px; }
 .resize-handle { position:absolute; z-index:9; right:0; bottom:0; width:28px; height:28px; cursor:nwse-resize; -webkit-app-region:no-drag; opacity:.55; }
 .resize-handle::after { content:""; position:absolute; right:2px; bottom:2px; width:8px; height:8px; border-right:2px solid currentColor; border-bottom:2px solid currentColor; }

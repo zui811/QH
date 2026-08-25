@@ -12,6 +12,7 @@ const initial = {
   ],
   notes: { work: '', life: '', ideas: '' },
   tasks: [], currentCategory: 'work', currentType: 'notes',
+  preferences: { confirmTaskDelete: true },
   appearance: { opacity: 78, textColor: '#fff8e7', background: '', compact: false, autoLaunch: true, aspectLock: false, aspectPreset: '9:16', customAspectWidth: 9, customAspectHeight: 16 }
 };
 let state;
@@ -26,6 +27,8 @@ for (const category of state.categories) state.notes[category.id] = typeof state
 const validCategoryIds = new Set(state.categories.map(category => category.id));
 state.tasks = Array.isArray(state.tasks) ? state.tasks.filter(task => validObject(task) && typeof task.id === 'string' && validCategoryIds.has(task.categoryId)).map(task => ({ ...task, title: typeof task.title === 'string' ? task.title.slice(0, 60) : '', note: typeof task.note === 'string' ? task.note : '', order: Number.isInteger(Number(task.order)) && Number(task.order) >= 1 ? Number(task.order) : 1, severity: ['low','medium','high','urgent'].includes(task.severity) ? task.severity : 'medium', start: typeof task.start === 'string' ? task.start : '', due: typeof task.due === 'string' ? task.due : '', done: Boolean(task.done) })) : [];
 state.appearance = { ...initial.appearance, ...(validObject(state.appearance) ? state.appearance : {}) };
+state.preferences = { ...initial.preferences, ...(validObject(state.preferences) ? state.preferences : {}) };
+state.preferences.confirmTaskDelete = state.preferences.confirmTaskDelete !== false;
 state.appearance.opacity = Number.isFinite(Number(state.appearance.opacity)) ? Math.max(0, Math.min(100, Number(state.appearance.opacity))) : initial.appearance.opacity;
 state.appearance.textColor = /^#[0-9a-f]{6}$/i.test(state.appearance.textColor) ? state.appearance.textColor : initial.appearance.textColor;
 state.appearance.background = typeof state.appearance.background === 'string' ? state.appearance.background : '';
@@ -40,6 +43,9 @@ let clipboardItems = [];
 let clipboardSettings = {};
 let clipboardShortcuts = { open: false, direct: [] };
 let clipboardSelection = 0;
+let taskBatchMode = false;
+let selectedTaskIds = new Set();
+let confirmResolver = null;
 const showSaveError = message => { const output = $('savedState'); if (output) { output.textContent = message; output.title = message; } };
 const persist = () => { try { localStorage.setItem('desktop-note-state', JSON.stringify(state)); return true; } catch { showSaveError('本地保存失败'); return false; } };
 const currentCat = () => state.categories.find(c => c.id === state.currentCategory) || state.categories[0];
@@ -65,6 +71,7 @@ function applyAppearance() {
   $('app').classList.toggle('compact', !!a.compact);
   $('app').classList.toggle('transparent-background', opacity === 0);
   $('opacityInput').value = opacity; $('opacityValue').value = `${opacity}%`; $('textColor').value = a.textColor; $('compactToggle').checked = !!a.compact; $('autoLaunchToggle').checked = a.autoLaunch !== false;
+  $('taskDeleteConfirmToggle').checked=state.preferences.confirmTaskDelete!==false;
   $('aspectLockToggle').checked=!!a.aspectLock;$('aspectPreset').value=a.aspectPreset||'9:16';$('customAspectWidth').value=a.customAspectWidth||9;$('customAspectHeight').value=a.customAspectHeight||16;updateAspectControls();
 }
 function currentAspectRatio(){
@@ -91,17 +98,33 @@ function renderCategories() {
   state.categories.forEach(c => {
     const b = document.createElement('button'); b.className = `category-item${c.id===cat.id?' active':''}`;
     b.innerHTML = `<span class="dot" style="background:${c.color}"></span><span class="category-name"></span><span class="category-delete" title="删除分类">×</span>`; b.querySelector('.category-name').textContent = c.name;
-    b.onclick = () => { state.currentCategory=c.id; persist(); render(); };
+    b.onclick = () => { taskBatchMode=false;selectedTaskIds.clear();state.currentCategory=c.id; persist(); render(); };
     b.ondblclick = e => { e.stopPropagation(); openCategory(c); };
     b.querySelector('.category-delete').onclick=e=>{e.stopPropagation();deleteCategory(c)};
     $('categoryList').appendChild(b);
   });
   document.documentElement.style.setProperty('--accent',cat.color); $('currentCategory').textContent=cat.name;
 }
-function deleteCategory(category){
+function showConfirm({title='确认操作',message,confirmText='确认',allowDisableTaskConfirm=false}){
+  if($('confirmDialog').open)finishConfirm(false);
+  $('confirmTitle').textContent=title;$('confirmMessage').textContent=message;$('confirmActionBtn').textContent=confirmText;
+  $('disableTaskConfirmRow').hidden=!allowDisableTaskConfirm;$('disableTaskConfirm').checked=false;
+  $('confirmDialog').showModal();
+  return new Promise(resolve=>{confirmResolver=resolve});
+}
+function finishConfirm(result){
+  if(!$('confirmDialog').open)return;
+  if(result&&$('disableTaskConfirmRow').hidden===false&&$('disableTaskConfirm').checked){state.preferences.confirmTaskDelete=false;$('taskDeleteConfirmToggle').checked=false;persist()}
+  $('confirmDialog').close();const resolve=confirmResolver;confirmResolver=null;resolve?.(result);
+}
+async function confirmTaskDeletion(message){
+  if(!state.preferences.confirmTaskDelete)return true;
+  return showConfirm({title:'删除任务',message,confirmText:'确认删除',allowDisableTaskConfirm:true});
+}
+async function deleteCategory(category){
   if(state.categories.length<=1){window.alert('至少需要保留一个分类');return}
   const taskCount=state.tasks.filter(task=>task.categoryId===category.id).length;
-  if(!window.confirm(`确定删除“${category.name}”分类吗？其中的笔记${taskCount?`和 ${taskCount} 个任务`:''}也会永久删除。`))return;
+  if(!await showConfirm({title:'删除分类',message:`确定删除“${category.name}”分类吗？其中的笔记${taskCount?`和 ${taskCount} 个任务`:''}也会永久删除。`,confirmText:'删除分类'}))return;
   state.categories=state.categories.filter(item=>item.id!==category.id);
   state.tasks=state.tasks.filter(task=>task.categoryId!==category.id);
   delete state.notes[category.id];
@@ -112,12 +135,35 @@ function renderTasks() {
   const list = $('taskList'); list.innerHTML='';
   const dueTime = task => task.due ? Date.parse(task.due) : NO_DUE_DATE;
   const tasks=state.tasks.filter(t=>t.categoryId===state.currentCategory).sort((a,b)=>a.order-b.order || dueTime(a)-dueTime(b));
+  $('batchTaskBtn').disabled=tasks.length===0;
+  const visibleIds=new Set(tasks.map(task=>task.id));selectedTaskIds=new Set([...selectedTaskIds].filter(id=>visibleIds.has(id)));
+  list.classList.toggle('batch-mode',taskBatchMode);$('taskDefaultToolbar').classList.toggle('hidden',taskBatchMode);$('taskBatchToolbar').classList.toggle('active',taskBatchMode);$('batchSelectedCount').textContent=`已选 ${selectedTaskIds.size} 项`;
+  $('selectAllTasksBtn').textContent=tasks.length&&selectedTaskIds.size===tasks.length?'取消全选':'全选';['batchCompleteBtn','batchUncompleteBtn','batchDeleteBtn'].forEach(id=>$(id).disabled=selectedTaskIds.size===0);
   if (!tasks.length) { list.innerHTML='<div style="text-align:center;opacity:.3;font-size:12px;padding:35px 0">暂无任务，给今天一个清晰的开始</div>'; return; }
   const labels={low:'低',medium:'中',high:'高',urgent:'紧急'};
-  tasks.forEach(t=>{const card=document.createElement('div');card.className=`task-card${t.done?' done':''}`;const times=[t.start&&`开始 ${fmt(t.start)}`,t.due&&`截止 ${fmt(t.due)}`].filter(Boolean).join(' · ');card.innerHTML=`<input class="task-check" type="checkbox" ${t.done?'checked':''}><div><div class="task-title"></div><div class="task-meta">顺序 ${t.order}${times?' · '+times:''}${t.note?'<br>':''}<span class="task-note"></span></div></div><div class="task-actions"><span class="severity ${t.severity}">${labels[t.severity]}</span><button class="task-edit" title="修改任务">✎</button><button class="task-delete" title="删除任务">×</button></div>`;card.querySelector('.task-title').textContent=t.title;card.querySelector('.task-note').textContent=t.note||'';card.querySelector('.task-check').onchange=e=>{t.done=e.target.checked;persist();renderTasks()};card.querySelector('.task-edit').onclick=()=>openTask(t);card.querySelector('.task-delete').onclick=()=>{if(!window.confirm(`确定删除任务“${t.title}”吗？此操作无法撤销。`))return;const categoryId=t.categoryId;state.tasks=state.tasks.filter(x=>x.id!==t.id);resequenceCategory(categoryId);persist();renderTasks()};card.ondblclick=e=>{if(!e.target.closest('button,input'))openTask(t)};list.appendChild(card)});
+  tasks.forEach(t=>{
+    const card=document.createElement('div');card.className=`task-card${t.done?' done':''}${selectedTaskIds.has(t.id)?' batch-selected':''}`;
+    const times=[t.start&&`开始 ${fmt(t.start)}`,t.due&&`截止 ${fmt(t.due)}`].filter(Boolean).join(' · ');
+    card.innerHTML=`<input class="batch-check" type="checkbox" aria-label="选择任务" ${selectedTaskIds.has(t.id)?'checked':''}><input class="task-check" type="checkbox" ${t.done?'checked':''}><div><div class="task-title"></div><div class="task-meta">顺序 ${t.order}${times?' · '+times:''}${t.note?'<br>':''}<span class="task-note"></span></div></div><div class="task-actions"><span class="severity ${t.severity}">${labels[t.severity]}</span><button class="task-edit" title="修改任务">✎</button><button class="task-delete" title="删除任务">×</button></div>`;
+    card.querySelector('.task-title').textContent=t.title;card.querySelector('.task-note').textContent=t.note||'';
+    card.querySelector('.batch-check').onchange=e=>{if(e.target.checked)selectedTaskIds.add(t.id);else selectedTaskIds.delete(t.id);renderTasks()};
+    card.querySelector('.task-check').onchange=e=>{t.done=e.target.checked;persist();renderTasks()};
+    card.querySelector('.task-edit').onclick=()=>openTask(t);
+    card.querySelector('.task-delete').onclick=async()=>{if(!await confirmTaskDeletion(`确定删除任务“${t.title}”吗？删除后无法恢复。`))return;const categoryId=t.categoryId;state.tasks=state.tasks.filter(x=>x.id!==t.id);selectedTaskIds.delete(t.id);resequenceCategory(categoryId);persist();renderTasks()};
+    card.onclick=e=>{if(taskBatchMode&&!e.target.closest('button,input')){if(selectedTaskIds.has(t.id))selectedTaskIds.delete(t.id);else selectedTaskIds.add(t.id);renderTasks()}};
+    card.ondblclick=e=>{if(!taskBatchMode&&!e.target.closest('button,input'))openTask(t)};list.appendChild(card);
+  });
 }
 function resequenceCategory(categoryId){
   state.tasks.filter(t=>t.categoryId===categoryId).sort((a,b)=>a.order-b.order).forEach((task,index)=>{task.order=index+1});
+}
+function exitTaskBatch(){taskBatchMode=false;selectedTaskIds.clear();renderTasks()}
+function setSelectedTasksDone(done){if(!selectedTaskIds.size)return;state.tasks.forEach(task=>{if(selectedTaskIds.has(task.id))task.done=done});persist();renderTasks()}
+async function deleteSelectedTasks(){
+  if(!selectedTaskIds.size)return;
+  const count=selectedTaskIds.size;
+  if(!await confirmTaskDeletion(`确定删除选中的 ${count} 个任务吗？删除后无法恢复。`))return;
+  const categoryId=state.currentCategory;state.tasks=state.tasks.filter(task=>!selectedTaskIds.has(task.id));selectedTaskIds.clear();resequenceCategory(categoryId);persist();renderTasks();
 }
 function render() {
   renderCategories(); const notes=state.currentType==='notes',tasks=state.currentType==='tasks',clips=state.currentType==='clipboard';
@@ -172,7 +218,7 @@ function renderClipboard(){
     card.onclick=e=>{clipboardSelection=index;renderClipboard();if(!e.target.closest('button')&&e.detail===2)window.desktopAPI.pasteClipboardItem(item.id,false)};
     card.querySelector('.clip-pin').onclick=async e=>{e.stopPropagation();try{clipboardItems=await window.desktopAPI.pinClipboardItem(item.id);renderClipboard()}catch{}};
     card.querySelector('.clip-plain').onclick=e=>{e.stopPropagation();window.desktopAPI.pasteClipboardItem(item.id,true)};
-    card.querySelector('.clip-delete').onclick=async e=>{e.stopPropagation();if(!window.confirm('确定删除这条剪贴板记录吗？'))return;try{clipboardItems=await window.desktopAPI.deleteClipboardItem(item.id);renderClipboard()}catch{}};
+    card.querySelector('.clip-delete').onclick=async e=>{e.stopPropagation();if(!await showConfirm({title:'删除剪贴板记录',message:'确定删除这条剪贴板记录吗？删除后无法恢复。',confirmText:'确认删除'}))return;try{clipboardItems=await window.desktopAPI.deleteClipboardItem(item.id);renderClipboard()}catch{}};
     list.appendChild(card);
   });
   list.querySelector('.selected')?.scrollIntoView({block:'nearest'});
@@ -187,12 +233,16 @@ async function initClipboard(){
   try{const data=await window.desktopAPI.getClipboardHistory();clipboardItems=data.items||[];clipboardSettings=data.settings||{};clipboardShortcuts=data.shortcuts||clipboardShortcuts;applyClipboardOptions();renderClipboard()}catch{$('clipboardShortcutHint').textContent='剪贴板服务暂时不可用'}
 }
 
-document.querySelectorAll('.type-tab').forEach(b=>b.onclick=()=>{state.currentType=b.dataset.type;persist();render()});
+document.querySelectorAll('.type-tab').forEach(b=>b.onclick=()=>{taskBatchMode=false;selectedTaskIds.clear();state.currentType=b.dataset.type;persist();render()});
 $('noteInput').oninput=e=>{state.notes[state.currentCategory]=e.target.value;$('charCount').textContent=`${e.target.value.length} 字`;$('savedState').textContent='保存中…';if(persist())setTimeout(()=>$('savedState').textContent='已自动保存',300)};
 $('addCategoryBtn').onclick=()=>openCategory();
 $('cancelCategoryBtn').onclick=()=>{$('categoryDialog').close();categoryEditing=null;$('categoryName').setCustomValidity('')};
 $('saveCategoryBtn').onclick=e=>{e.preventDefault();const name=$('categoryName').value.trim();if(!name)return;if(categoryEditing){categoryEditing.name=name;categoryEditing.color=$('categoryColor').value}else{const id=`cat-${Date.now()}`;state.categories.push({id,name,color:$('categoryColor').value});state.notes[id]='';state.currentCategory=id}if(!persist()){window.alert('分类未能写入本地存储，请检查磁盘空间或应用权限。');return}$('categoryDialog').close();render()};
 $('addTaskBtn').onclick=()=>openTask();
+$('batchTaskBtn').onclick=()=>{taskBatchMode=true;selectedTaskIds.clear();renderTasks()};
+$('exitBatchBtn').onclick=exitTaskBatch;
+$('selectAllTasksBtn').onclick=()=>{const ids=state.tasks.filter(task=>task.categoryId===state.currentCategory).map(task=>task.id);selectedTaskIds=selectedTaskIds.size===ids.length?new Set():new Set(ids);renderTasks()};
+$('batchCompleteBtn').onclick=()=>setSelectedTasksDone(true);$('batchUncompleteBtn').onclick=()=>setSelectedTasksDone(false);$('batchDeleteBtn').onclick=deleteSelectedTasks;
 $('cancelTaskBtn').onclick=()=>{$('taskDialog').close();taskEditing=null;$('taskDue').setCustomValidity('');$('taskOrder').setCustomValidity('')};
 $('saveTaskBtn').onclick=e=>{e.preventDefault();saveTask()};
 $('taskDialog').querySelector('form').onkeydown=e=>{const isDateTime=e.target instanceof HTMLInputElement&&e.target.type==='datetime-local';if(e.key==='Enter'&&!e.shiftKey&&e.target.tagName!=='TEXTAREA'&&!isDateTime){e.preventDefault();saveTask()}};
@@ -200,6 +250,7 @@ $('taskOrder').oninput=e=>e.target.setCustomValidity('');
 $('taskStart').onchange=e=>{const due=$('taskDue');due.min=e.target.value;if(due.value&&Date.parse(due.value)<Date.parse(e.target.value))due.value=e.target.value;due.setCustomValidity('')};
 $('taskDue').oninput=e=>e.target.setCustomValidity('');
 $('settingsBtn').onclick=()=> $('settingsPanel').classList.toggle('open'); $('settingsClose').onclick=()=> $('settingsPanel').classList.remove('open');
+$('confirmCancelBtn').onclick=()=>finishConfirm(false);$('confirmActionBtn').onclick=()=>finishConfirm(true);$('confirmDialog').oncancel=e=>{e.preventDefault();finishConfirm(false)};$('confirmDialog').querySelector('form').onsubmit=e=>e.preventDefault();
 document.addEventListener('pointerdown',e=>{if($('settingsPanel').classList.contains('open')&&!$('settingsPanel').contains(e.target)&&!$('settingsBtn').contains(e.target))$('settingsPanel').classList.remove('open')});
 function updateOpacity(value){
   state.appearance.opacity=Math.max(0,Math.min(100,Number(value)));
@@ -211,6 +262,7 @@ $('opacityInput').addEventListener('change',e=>updateOpacity(e.currentTarget.val
 $('transparentBtn').onclick=()=>updateOpacity(0);
 $('textColor').oninput=e=>{state.appearance.textColor=e.target.value;persist();applyAppearance()}; $('compactToggle').onchange=e=>{state.appearance.compact=e.target.checked;persist();applyAppearance()};
 $('autoLaunchToggle').onchange=async e=>{const requested=e.target.checked;try{const enabled=await window.desktopAPI.setAutoLaunch(requested);e.target.checked=enabled;state.appearance.autoLaunch=enabled;persist()}catch{e.target.checked=!requested;e.target.title='无法修改开机启动设置';}};
+$('taskDeleteConfirmToggle').onchange=e=>{state.preferences.confirmTaskDelete=e.target.checked;persist()};
 $('aspectLockToggle').onchange=e=>{state.appearance.aspectLock=e.target.checked;persist();updateAspectControls();if(e.target.checked)resizeToCurrentAspect()};
 $('aspectPreset').onchange=e=>{state.appearance.aspectPreset=e.target.value;persist();updateAspectControls();resizeToCurrentAspect()};
 function updateCustomAspect(){
@@ -229,7 +281,7 @@ async function syncPinIcon(){try{$('pinBtn').textContent=await window.desktopAPI
 $('pinBtn').onclick=()=>{window.desktopAPI.windowAction('toggle-top');setTimeout(syncPinIcon,50)}; $('minBtn').onclick=()=>window.desktopAPI.windowAction('minimize'); $('closeBtn').onclick=()=>window.desktopAPI.windowAction('close');
 window.addEventListener('blur',async()=>{
   try{if(await window.desktopAPI.isDevToolsOpened())return}catch{}
-  if(!$('categoryDialog').open&&!$('taskDialog').open)$('app').classList.add('display-only');
+  if(!$('categoryDialog').open&&!$('taskDialog').open&&!$('confirmDialog').open)$('app').classList.add('display-only');
 });
 window.addEventListener('focus',()=>{$('app').classList.remove('display-only');syncPinIcon()});
 async function initAutoLaunch(){
@@ -269,7 +321,7 @@ $('clipboardSearch').oninput=()=>{clipboardSelection=0;renderClipboard()};
 $('clipboardOptionsBtn').onclick=()=>$('clipboardOptions').classList.toggle('open');
 $('clipboardPauseBtn').onclick=async()=>{try{const data=await window.desktopAPI.updateClipboardSettings({paused:!clipboardSettings.paused});clipboardSettings=data.settings;clipboardShortcuts=data.shortcuts;applyClipboardOptions();renderClipboard()}catch{}};
 $('saveClipboardOptions').onclick=async()=>{const excludedApps=$('clipboardExcludedApps').value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);try{const data=await window.desktopAPI.updateClipboardSettings({maxItems:Number($('clipboardMaxItems').value),expireDays:Number($('clipboardExpireDays').value),persistHistory:$('clipboardPersist').checked,directPaste:$('clipboardDirectPaste').checked,openShortcut:$('clipboardOpenShortcut').value.trim()||'CommandOrControl+Shift+V',excludedApps});clipboardSettings=data.settings;clipboardShortcuts=data.shortcuts;applyClipboardOptions();if(data.saved===false){$('clipboardShortcutStatus').textContent='设置未能写入磁盘，请检查空间或权限';return}$('clipboardOptions').classList.remove('open')}catch{$('clipboardShortcutStatus').textContent='保存失败，请检查快捷键格式'}};
-$('clearClipboardBtn').onclick=async()=>{if(!window.confirm('确定清空所有未收藏的剪贴板记录吗？收藏项会保留。'))return;try{clipboardItems=await window.desktopAPI.clearClipboardHistory();renderClipboard()}catch{}};
+$('clearClipboardBtn').onclick=async()=>{if(!await showConfirm({title:'清空剪贴板历史',message:'确定清空所有未收藏的剪贴板记录吗？收藏项会保留。',confirmText:'确认清空'}))return;try{clipboardItems=await window.desktopAPI.clearClipboardHistory();renderClipboard()}catch{}};
 document.addEventListener('keydown',e=>{
   if(state.currentType!=='clipboard'||$('categoryDialog').open||$('taskDialog').open)return;
   const items=clipboardFilteredItems();
