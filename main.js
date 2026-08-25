@@ -30,8 +30,13 @@ let clipboardItems = [];
 let clipboardSettings = { ...DEFAULT_CLIPBOARD_SETTINGS };
 let shortcutStatus = { open: false, direct: [] };
 
-initLogger(app.getPath('userData'));
-log('main', 'info', 'Application process started', { version: app.getVersion(), platform: process.platform, arch: process.arch });
+const preferredLogDirectory = app.isPackaged
+  ? path.join(path.dirname(process.execPath), 'logs')
+  : path.join(__dirname, 'dist', 'logs');
+const fallbackLogDirectory = path.join(app.getPath('userData'), 'logs');
+const activeLogDirectory = initLogger(preferredLogDirectory, fallbackLogDirectory);
+const logLocation = activeLogDirectory && path.resolve(activeLogDirectory) === path.resolve(preferredLogDirectory) ? 'application' : 'fallback';
+log('main', 'info', 'Application process started', { version: app.getVersion(), platform: process.platform, arch: process.arch, logLocation });
 process.on('uncaughtException', error => {
   log('main', 'error', 'Uncaught exception', error);
   setImmediate(() => app.quit());

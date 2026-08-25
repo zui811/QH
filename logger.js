@@ -11,9 +11,22 @@ const dayStamp = date => {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
-function initLogger(userDataDirectory) {
-  logDirectory = path.join(userDataDirectory, 'logs');
-  try { fs.mkdirSync(logDirectory, { recursive: true }); cleanupOldLogs(); } catch {}
+function initLogger(preferredDirectory, fallbackDirectory = '') {
+  const candidates = [...new Set([preferredDirectory, fallbackDirectory].filter(Boolean).map(directory => path.resolve(directory)))];
+  logDirectory = '';
+  for (const candidate of candidates) {
+    const probe = path.join(candidate, `.write-test-${process.pid}`);
+    try {
+      fs.mkdirSync(candidate, { recursive: true });
+      fs.writeFileSync(probe, 'ok', 'utf8');
+      fs.rmSync(probe, { force: true });
+      logDirectory = candidate;
+      cleanupOldLogs();
+      break;
+    } catch {
+      try { fs.rmSync(probe, { force: true }); } catch {}
+    }
+  }
   return logDirectory;
 }
 function cleanupOldLogs() {
