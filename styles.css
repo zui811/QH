@@ -104,7 +104,8 @@ dialog { width:330px; color:#f8f3e9; background:#232429; border:1px solid rgba(2
 .clipboard-empty { text-align:center; opacity:.35; font-size:11px; padding:35px 6px; line-height:1.7; }
 .clear-clipboard { align-self:center; font-size:9px; opacity:.5; padding:5px 9px; }.clear-clipboard:hover{opacity:1}
 .clipboard-options { display:none; padding:10px; border:1px solid rgba(255,255,255,.09); border-radius:11px; background:rgba(18,19,22,.92); font-size:10px; }.clipboard-options.open{display:block}.clipboard-options label{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0}.clipboard-options input[type=number],.clipboard-options input[type=text],.clipboard-options textarea{width:115px;min-width:0;border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:5px;background:rgba(255,255,255,.07);color:inherit}.clipboard-options textarea{resize:vertical}.clipboard-options .secondary-btn{width:100%;margin-top:7px;font-size:10px}.clipboard-status{margin-top:7px}
-.display-only #clipboardPanel,.display-only .type-tab[data-type=clipboard] { display:none!important; }
+.display-only .panel:not(.active) { display:none!important; }
+.display-only .clipboard-toolbar,.display-only .clipboard-hint,.display-only .clipboard-options,.display-only .clear-clipboard,.display-only .type-tab[data-type=clipboard] { display:none!important; }
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:9px}
 @media (max-width:300px){
   .sidebar{width:82px;padding:10px 6px}.type-tab,.category-item,.add-category{padding:7px 6px;font-size:11px}.workspace{padding:14px 10px 10px}.workspace h1{font-size:17px}.settings-panel{right:6px;width:calc(100% - 12px)}.task-card{padding:8px;gap:5px}.severity{display:none}
