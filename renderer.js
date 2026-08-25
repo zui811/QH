@@ -23,7 +23,16 @@ let clipboardShortcuts = { open: false, direct: [] };
 let clipboardSelection = 0;
 const persist = () => localStorage.setItem('desktop-note-state', JSON.stringify(state));
 const currentCat = () => state.categories.find(c => c.id === state.currentCategory) || state.categories[0];
-const fmt = value => value ? new Intl.DateTimeFormat('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(value)) : '';
+const fmt = value => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    return new Intl.DateTimeFormat('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(date);
+  } catch {
+    return '';
+  }
+};
 
 function applyAppearance() {
   const a = state.appearance;
@@ -31,8 +40,8 @@ function applyAppearance() {
   document.documentElement.style.setProperty('--panel', `rgba(24,25,29,${opacity / 100})`);
   document.documentElement.style.setProperty('--text', a.textColor);
   const backgroundUrl = a.background ? encodeURI(`file:///${a.background.replace(/\\/g,'/')}`).replace(/#/g,'%23').replace(/\?/g,'%3F') : '';
-  $('.background').style.backgroundImage = backgroundUrl ? `url("${backgroundUrl}")` : '';
-  $('.background').style.opacity = opacity === 0 ? '0' : String(opacity / 100);
+  $('background').style.backgroundImage = backgroundUrl ? `url("${backgroundUrl}")` : '';
+  $('background').style.opacity = opacity === 0 ? '0' : String(opacity / 100);
   $('app').classList.toggle('compact', !!a.compact);
   $('app').classList.toggle('transparent-background', opacity === 0);
   $('opacityInput').value = opacity; $('opacityValue').value = `${opacity}%`; $('textColor').value = a.textColor; $('compactToggle').checked = !!a.compact; $('autoLaunchToggle').checked = a.autoLaunch !== false;
