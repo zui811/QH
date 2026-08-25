@@ -25,6 +25,7 @@
         <nav class="type-tabs">
           <button class="type-tab active" data-type="notes">记事本</button>
           <button class="type-tab" data-type="tasks">任务册</button>
+          <button class="type-tab" data-type="clipboard">剪贴板</button>
         </nav>
         <div class="side-label">分类</div>
         <div id="categoryList" class="category-list"></div>
@@ -41,6 +42,26 @@
         <div id="tasksPanel" class="panel">
           <button id="addTaskBtn" class="primary-btn">＋ 添加任务</button>
           <div id="taskList" class="task-list"></div>
+        </div>
+        <div id="clipboardPanel" class="panel clipboard-panel">
+          <div class="clipboard-toolbar">
+            <input id="clipboardSearch" type="search" placeholder="搜索剪贴板历史">
+            <button id="clipboardPauseBtn" title="暂停或继续记录">暂停</button>
+            <button id="clipboardOptionsBtn" title="剪贴板设置">⚙</button>
+          </div>
+          <div id="clipboardShortcutHint" class="clipboard-hint">Ctrl+Shift+V 打开 · 1～9 粘贴 · Alt+1～9 快速粘贴</div>
+          <div id="clipboardOptions" class="clipboard-options">
+            <label>保存上限 <input id="clipboardMaxItems" type="number" min="10" max="1000" step="10"></label>
+            <label>自动过期（天，0=永久）<input id="clipboardExpireDays" type="number" min="0" max="3650"></label>
+            <label class="check-row"><input id="clipboardPersist" type="checkbox"> 重启后保留历史</label>
+            <label class="check-row"><input id="clipboardDirectPaste" type="checkbox"> 启用 Alt+1～9</label>
+            <label>打开快捷键 <input id="clipboardOpenShortcut" type="text" placeholder="CommandOrControl+Shift+V"></label>
+            <label>排除程序（逗号分隔）<textarea id="clipboardExcludedApps" rows="2"></textarea></label>
+            <div id="clipboardShortcutStatus" class="clipboard-status"></div>
+            <button id="saveClipboardOptions" class="secondary-btn">保存设置</button>
+          </div>
+          <div id="clipboardList" class="clipboard-list"></div>
+          <button id="clearClipboardBtn" class="clear-clipboard">清空未收藏记录</button>
         </div>
       </section>
     </section>

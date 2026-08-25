@@ -17,6 +17,10 @@ try { state = { ...initial, ...JSON.parse(localStorage.getItem('desktop-note-sta
 state.categories ||= initial.categories; state.notes ||= {}; state.tasks ||= []; state.appearance={...initial.appearance,...(state.appearance||{})};
 let categoryEditing = null;
 let taskEditing = null;
+let clipboardItems = [];
+let clipboardSettings = {};
+let clipboardShortcuts = { open: false, direct: [] };
+let clipboardSelection = 0;
 const persist = () => localStorage.setItem('desktop-note-state', JSON.stringify(state));
 const currentCat = () => state.categories.find(c => c.id === state.currentCategory) || state.categories[0];
 const fmt = value => value ? new Intl.DateTimeFormat('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(value)) : '';
@@ -86,10 +90,13 @@ function resequenceCategory(categoryId){
   state.tasks.filter(t=>t.categoryId===categoryId).sort((a,b)=>a.order-b.order).forEach((task,index)=>{task.order=index+1});
 }
 function render() {
-  renderCategories(); const notes=state.currentType==='notes';
+  renderCategories(); const notes=state.currentType==='notes',tasks=state.currentType==='tasks',clips=state.currentType==='clipboard';
   document.querySelectorAll('.type-tab').forEach(b=>b.classList.toggle('active',b.dataset.type===state.currentType));
-  $('notesPanel').classList.toggle('active',notes); $('tasksPanel').classList.toggle('active',!notes); $('currentType').textContent=notes?'记事本':'任务册';
-  $('noteInput').value=state.notes[state.currentCategory]||''; $('charCount').textContent=`${$('noteInput').value.length} 字`; renderTasks(); applyAppearance();
+  $('notesPanel').classList.toggle('active',notes); $('tasksPanel').classList.toggle('active',tasks); $('clipboardPanel').classList.toggle('active',clips);
+  $('currentType').textContent=notes?'记事本':tasks?'任务册':'剪贴板历史';
+  document.querySelector('.side-label').classList.toggle('clipboard-hidden',clips);$('categoryList').classList.toggle('clipboard-hidden',clips);$('addCategoryBtn').classList.toggle('clipboard-hidden',clips);
+  $('currentCategory').textContent=clips?'本机历史':currentCat().name;
+  $('noteInput').value=state.notes[state.currentCategory]||''; $('charCount').textContent=`${$('noteInput').value.length} 字`; renderTasks(); renderClipboard(); applyAppearance();
 }
 function openCategory(c=null){categoryEditing=c;$('categoryDialogTitle').textContent=c?'修改分类':'新建分类';$('categoryName').value=c?.name||'';$('categoryColor').value=c?.color||'#ffb86b';$('categoryDialog').showModal();setTimeout(()=>$('categoryName').focus(),50)}
 function openTask(task=null){
@@ -114,6 +121,40 @@ function saveTask(){
   const values={title,severity:$('taskSeverity').value,order,start,due,note:$('taskNote').value.trim()};
   if(taskEditing) Object.assign(taskEditing,values); else state.tasks.push({id:`task-${Date.now()}`,categoryId:state.currentCategory,...values,done:false});
   persist(); $('taskDialog').close(); taskEditing=null; renderTasks();
+}
+
+const clipboardTypeLabel={text:'文本',rich:'富文本',image:'图片',files:'文件'};
+function clipboardFilteredItems(){
+  const query=$('clipboardSearch').value.trim().toLowerCase();
+  return clipboardItems.filter(item=>!query||`${item.text||''} ${item.source||''} ${clipboardTypeLabel[item.type]||''}`.toLowerCase().includes(query));
+}
+function renderClipboard(){
+  const list=$('clipboardList');if(!list)return;
+  const items=clipboardFilteredItems();clipboardSelection=Math.max(0,Math.min(clipboardSelection,Math.max(0,items.length-1)));
+  list.innerHTML='';$('clipboardPauseBtn').textContent=clipboardSettings.paused?'继续':'暂停';
+  if(!items.length){list.innerHTML='<div class="clipboard-empty">暂无记录。复制文字或图片后会自动出现在这里。</div>';return}
+  items.forEach((item,index)=>{
+    const card=document.createElement('article');card.className=`clipboard-card${index===clipboardSelection?' selected':''}`;card.dataset.id=item.id;
+    const time=new Intl.DateTimeFormat('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(item.createdAt));
+    card.innerHTML=`<div class="clipboard-index">${index<9?index+1:'·'}</div><div class="clipboard-content"><div class="clipboard-meta"><span>${clipboardTypeLabel[item.type]||'内容'}</span><span>${item.source||'未知应用'} · ${time}</span></div><div class="clipboard-preview"></div></div><div class="clipboard-actions"><button class="clip-pin" title="收藏">${item.pinned?'★':'☆'}</button><button class="clip-plain" title="粘贴为纯文本">T</button><button class="clip-delete" title="删除">×</button></div>`;
+    const preview=card.querySelector('.clipboard-preview');
+    if(item.type==='image'&&item.imageData){const img=document.createElement('img');img.src=item.imageData;img.alt='剪贴板图片';preview.appendChild(img)}else preview.textContent=item.text||'(无文本预览)';
+    card.onclick=e=>{clipboardSelection=index;renderClipboard();if(!e.target.closest('button')&&e.detail===2)window.desktopAPI.pasteClipboardItem(item.id,false)};
+    card.querySelector('.clip-pin').onclick=async e=>{e.stopPropagation();try{clipboardItems=await window.desktopAPI.pinClipboardItem(item.id);renderClipboard()}catch{}};
+    card.querySelector('.clip-plain').onclick=e=>{e.stopPropagation();window.desktopAPI.pasteClipboardItem(item.id,true)};
+    card.querySelector('.clip-delete').onclick=async e=>{e.stopPropagation();if(!window.confirm('确定删除这条剪贴板记录吗？'))return;try{clipboardItems=await window.desktopAPI.deleteClipboardItem(item.id);renderClipboard()}catch{}};
+    list.appendChild(card);
+  });
+  list.querySelector('.selected')?.scrollIntoView({block:'nearest'});
+}
+function applyClipboardOptions(){
+  $('clipboardMaxItems').value=clipboardSettings.maxItems??100;$('clipboardExpireDays').value=clipboardSettings.expireDays??30;$('clipboardPersist').checked=clipboardSettings.persistHistory!==false;$('clipboardDirectPaste').checked=clipboardSettings.directPaste!==false;$('clipboardOpenShortcut').value=clipboardSettings.openShortcut||'CommandOrControl+Shift+V';$('clipboardExcludedApps').value=(clipboardSettings.excludedApps||[]).join(', ');renderClipboardShortcutStatus();
+}
+function renderClipboardShortcutStatus(){
+  const open=clipboardShortcuts.open?'可用':'被其它程序占用';const direct=clipboardSettings.directPaste?(clipboardShortcuts.direct?.length===9?'Alt+1～9 可用':`Alt 快捷键可用 ${clipboardShortcuts.direct?.length||0}/9`):'Alt 快捷键已关闭';$('clipboardShortcutStatus').textContent=`打开快捷键：${open}；${direct}`;
+}
+async function initClipboard(){
+  try{const data=await window.desktopAPI.getClipboardHistory();clipboardItems=data.items||[];clipboardSettings=data.settings||{};clipboardShortcuts=data.shortcuts||clipboardShortcuts;applyClipboardOptions();renderClipboard()}catch{$('clipboardShortcutHint').textContent='剪贴板服务暂时不可用'}
 }
 
 document.querySelectorAll('.type-tab').forEach(b=>b.onclick=()=>{state.currentType=b.dataset.type;persist();render()});
@@ -153,6 +194,7 @@ async function syncPinIcon(){try{$('pinBtn').textContent=await window.desktopAPI
 $('pinBtn').onclick=()=>{window.desktopAPI.windowAction('toggle-top');setTimeout(syncPinIcon,50)}; $('minBtn').onclick=()=>window.desktopAPI.windowAction('minimize'); $('closeBtn').onclick=()=>window.desktopAPI.windowAction('close');
 window.addEventListener('blur',async()=>{
   try{if(await window.desktopAPI.isDevToolsOpened())return}catch{}
+  if(state.currentType==='clipboard'){window.desktopAPI.windowAction('minimize');return}
   if(!$('categoryDialog').open&&!$('taskDialog').open)$('app').classList.add('display-only');
 });
 window.addEventListener('focus',()=>{$('app').classList.remove('display-only');syncPinIcon()});
@@ -189,6 +231,24 @@ function scaleWindow(factor){
   window.desktopAPI.resizeWindow(width,height);
 }
 $('shrinkWindowBtn').onclick=()=>scaleWindow(.9);$('growWindowBtn').onclick=()=>scaleWindow(1.1);
+$('clipboardSearch').oninput=()=>{clipboardSelection=0;renderClipboard()};
+$('clipboardOptionsBtn').onclick=()=>$('clipboardOptions').classList.toggle('open');
+$('clipboardPauseBtn').onclick=async()=>{try{const data=await window.desktopAPI.updateClipboardSettings({paused:!clipboardSettings.paused});clipboardSettings=data.settings;clipboardShortcuts=data.shortcuts;applyClipboardOptions();renderClipboard()}catch{}};
+$('saveClipboardOptions').onclick=async()=>{const excludedApps=$('clipboardExcludedApps').value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);try{const data=await window.desktopAPI.updateClipboardSettings({maxItems:Number($('clipboardMaxItems').value),expireDays:Number($('clipboardExpireDays').value),persistHistory:$('clipboardPersist').checked,directPaste:$('clipboardDirectPaste').checked,openShortcut:$('clipboardOpenShortcut').value.trim()||'CommandOrControl+Shift+V',excludedApps});clipboardSettings=data.settings;clipboardShortcuts=data.shortcuts;applyClipboardOptions();$('clipboardOptions').classList.remove('open')}catch{$('clipboardShortcutStatus').textContent='保存失败，请检查快捷键格式'}};
+$('clearClipboardBtn').onclick=async()=>{if(!window.confirm('确定清空所有未收藏的剪贴板记录吗？收藏项会保留。'))return;try{clipboardItems=await window.desktopAPI.clearClipboardHistory();renderClipboard()}catch{}};
+document.addEventListener('keydown',e=>{
+  if(state.currentType!=='clipboard'||$('categoryDialog').open||$('taskDialog').open)return;
+  const items=clipboardFilteredItems();
+  if(e.key==='ArrowDown'){e.preventDefault();clipboardSelection=Math.min(items.length-1,clipboardSelection+1);renderClipboard()}
+  else if(e.key==='ArrowUp'){e.preventDefault();clipboardSelection=Math.max(0,clipboardSelection-1);renderClipboard()}
+  else if(e.key==='Enter'&&items[clipboardSelection]){e.preventDefault();window.desktopAPI.pasteClipboardItem(items[clipboardSelection].id,e.shiftKey)}
+  else if(e.key==='Escape'){e.preventDefault();window.desktopAPI.windowAction('minimize')}
+  else if(!e.ctrlKey&&!e.altKey&&!e.metaKey&&/^[1-9]$/.test(e.key)&&document.activeElement!==$('clipboardSearch')){const item=items[Number(e.key)-1];if(item){e.preventDefault();window.desktopAPI.pasteClipboardItem(item.id,e.shiftKey)}}
+});
+window.desktopAPI.onClipboardHistoryChanged(items=>{clipboardItems=items;renderClipboard()});
+window.desktopAPI.onShowClipboardHistory(()=>{state.currentType='clipboard';persist();render();setTimeout(()=>$('clipboardSearch').focus(),60)});
+window.desktopAPI.onClipboardShortcutStatus(status=>{clipboardShortcuts=status;renderClipboardShortcutStatus()});
 render();
 syncPinIcon();
 initAutoLaunch();
+initClipboard();

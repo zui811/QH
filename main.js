@@ -1,98 +1,35 @@
-const { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, clipboard, globalShortcut, nativeImage } = require('electron');
+const { execFile } = require('child_process');
+const fs = require('fs');
 const path = require('path');
-const MIN_WINDOW_WIDTH = 220;
-const MIN_WINDOW_HEIGHT = 260;
-
-let win;
-let tray;
-
-function showWindow() {
-  if (!win) return;
-  win.show();
-  win.restore();
-  win.focus();
-}
-
-function createTray() {
-  tray = new Tray(path.join(__dirname, 'assets', 'app-icon.ico'));
-  tray.setToolTip('千幻桌面便笺');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '显示便笺', click: showWindow },
-    { type: 'separator' },
-    { label: '退出', click: () => app.quit() }
-  ]));
-  tray.on('click', showWindow);
-}
-
-function loginOptions(openAtLogin) {
-  const portablePath = process.env.PORTABLE_EXECUTABLE_FILE;
-  return {
-    openAtLogin,
-    path: portablePath || process.execPath,
-    args: portablePath || app.isPackaged ? [] : [path.resolve(__dirname)]
-  };
-}
-
-function createWindow() {
-  const area = screen.getPrimaryDisplay().workArea;
-  win = new BrowserWindow({
-    x: area.x + area.width - 430,
-    y: area.y + 56,
-    width: 390,
-    height: Math.min(720, area.height - 100),
-    minWidth: MIN_WINDOW_WIDTH,
-    minHeight: MIN_WINDOW_HEIGHT,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
-    skipTaskbar: true,
-    resizable: true,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
-  win.setAlwaysOnTop(false);
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false });
-  win.loadFile('index.html');
-}
-
-app.whenReady().then(() => {
-  ipcMain.handle('choose-background', async () => {
-    const result = await dialog.showOpenDialog(win, {
-      title: '选择背景图片',
-      properties: ['openFile'],
-      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }]
-    });
-    return result.canceled ? null : result.filePaths[0];
-  });
-  ipcMain.on('window-action', (_event, action) => {
-    if (!win) return;
-    if (action === 'close') app.quit();
-    if (action === 'minimize') win.hide();
-    if (action === 'toggle-top') win.setAlwaysOnTop(!win.isAlwaysOnTop());
-  });
-  ipcMain.handle('is-always-on-top', () => win?.isAlwaysOnTop() ?? false);
-  ipcMain.handle('is-devtools-opened', () => win?.webContents.isDevToolsOpened() ?? false);
-  ipcMain.handle('get-auto-launch', () => app.getLoginItemSettings(loginOptions(false)).openAtLogin);
-  ipcMain.handle('set-auto-launch', (_event, enabled) => {
-    app.setLoginItemSettings(loginOptions(Boolean(enabled)));
-    return app.getLoginItemSettings(loginOptions(Boolean(enabled))).openAtLogin;
-  });
-  ipcMain.on('resize-window', (_event, width, height) => {
-    if (!win) return;
-    const bounds = win.getBounds();
-    win.setBounds({
-      x: bounds.x,
-      y: bounds.y,
-      width: Math.max(MIN_WINDOW_WIDTH, Math.round(width)),
-      height: Math.max(MIN_WINDOW_HEIGHT, Math.round(height))
-    }, false);
-  });
-  createWindow();
-  createTray();
-});
-
-app.on('window-all-closed', () => app.quit());
+const crypto = require('crypto');
+const MIN_WINDOW_WIDTH = 220, MIN_WINDOW_HEIGHT = 260;
+const DEFAULT_CLIPBOARD_SETTINGS = { paused:false, maxItems:100, expireDays:30, persistHistory:true, excludedApps:['1password','bitwarden','keepass','keepassxc'], openShortcut:'CommandOrControl+Shift+V', directPaste:true };
+let win, tray, clipboardTimer, lastClipboardHash='';
+let clipboardItems=[], clipboardSettings={...DEFAULT_CLIPBOARD_SETTINGS}, shortcutStatus={open:false,direct:[]};
+const historyPath=()=>path.join(app.getPath('userData'),'clipboard-history.json');
+const settingsPath=()=>path.join(app.getPath('userData'),'clipboard-settings.json');
+const readJson=(file,fallback)=>{try{return JSON.parse(fs.readFileSync(file,'utf8'))}catch{return fallback}};
+const writeJson=(file,value)=>{try{fs.writeFileSync(file,JSON.stringify(value),'utf8');return true}catch{return false}};
+const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
+function pruneClipboard(){const cutoff=clipboardSettings.expireDays>0?Date.now()-clipboardSettings.expireDays*86400000:0;clipboardItems=clipboardItems.filter(i=>i.pinned||!cutoff||i.createdAt>=cutoff);const pinned=clipboardItems.filter(i=>i.pinned),normal=clipboardItems.filter(i=>!i.pinned).slice(0,Math.max(1,clipboardSettings.maxItems));clipboardItems=[...pinned,...normal].sort((a,b)=>Number(b.pinned)-Number(a.pinned)||b.createdAt-a.createdAt)}
+function loadClipboardData(){clipboardSettings={...DEFAULT_CLIPBOARD_SETTINGS,...readJson(settingsPath(),{})};clipboardItems=clipboardSettings.persistHistory?readJson(historyPath(),[]):[];pruneClipboard()}
+function saveClipboardSettings(){writeJson(settingsPath(),clipboardSettings)}
+function saveClipboardHistory(){if(clipboardSettings.persistHistory)writeJson(historyPath(),clipboardItems);else try{fs.unlinkSync(historyPath())}catch{}}
+function publicItems(){return clipboardItems.map(({html,...item})=>item)}
+function notifyClipboard(){win?.webContents.send('clipboard-history-changed',publicItems())}
+function foregroundProcess(callback){const script="$sig='[DllImport(\"user32.dll\")]public static extern IntPtr GetForegroundWindow();[DllImport(\"user32.dll\")]public static extern uint GetWindowThreadProcessId(IntPtr hWnd,out uint processId);';Add-Type -MemberDefinition $sig -Name Win32 -Namespace QH; $p=0; $h=[QH.Win32]::GetForegroundWindow(); [QH.Win32]::GetWindowThreadProcessId($h,[ref]$p)|Out-Null; (Get-Process -Id $p -ErrorAction SilentlyContinue).ProcessName";execFile('powershell.exe',['-NoProfile','-NonInteractive','-WindowStyle','Hidden','-Command',script],{windowsHide:true,timeout:2500},(_e,stdout)=>callback((stdout||'').trim().toLowerCase()))}
+function captureClipboard(){if(clipboardSettings.paused)return;const formats=clipboard.availableFormats(),fileBuffer=formats.includes('FileNameW')?clipboard.readBuffer('FileNameW'):Buffer.alloc(0),fileText=fileBuffer.length?fileBuffer.toString('utf16le').replace(/\0+$/,''):'';const image=clipboard.readImage(),hasImage=!image.isEmpty(),rawText=clipboard.readText(),text=fileText||rawText,html=clipboard.readHTML();if(!fileBuffer.length&&!hasImage&&!text.trim()&&!html.trim())return;const type=fileBuffer.length?'files':hasImage?'image':(html&&html!==text?'rich':'text'),imageData=hasImage?image.toDataURL():'',fileData=fileBuffer.length?fileBuffer.toString('base64'):'';const signature=hash(`${type}\0${fileData||imageData||text}\0${html}`);if(signature===lastClipboardHash)return;lastClipboardHash=signature;foregroundProcess(source=>{if(clipboardSettings.excludedApps.some(name=>source.includes(String(name).trim().toLowerCase())))return;const existing=clipboardItems.find(i=>i.hash===signature);if(existing)clipboardItems=clipboardItems.filter(i=>i.id!==existing.id);clipboardItems.unshift({id:existing?.id||`clip-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,type,text,html,imageData,fileData,source:source||'未知应用',createdAt:Date.now(),pinned:existing?.pinned||false,hash:signature});pruneClipboard();saveClipboardHistory();notifyClipboard()})}
+function startClipboardMonitor(){clearInterval(clipboardTimer);clipboardTimer=setInterval(captureClipboard,700);captureClipboard()}
+function writeClipboardItem(item,plain=false){if(!item)return false;lastClipboardHash=item.hash;if(item.type==='files'&&!plain&&item.fileData)clipboard.writeBuffer('FileNameW',Buffer.from(item.fileData,'base64'));else if(item.type==='image'&&!plain)clipboard.writeImage(nativeImage.createFromDataURL(item.imageData));else if(!plain&&item.html)clipboard.write({text:item.text||'',html:item.html});else clipboard.writeText(item.text||'');return true}
+function sendPasteKeystroke(){const script="Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')";setTimeout(()=>execFile('powershell.exe',['-NoProfile','-NonInteractive','-WindowStyle','Hidden','-Command',script],{windowsHide:true}),180)}
+function pasteItem(id,plain=false,fromPicker=false){const item=clipboardItems.find(i=>i.id===id);if(!writeClipboardItem(item,plain))return false;if(fromPicker)win?.hide();sendPasteKeystroke();return true}
+function showWindow(){if(!win)return;win.show();win.restore();win.focus()}
+function showClipboardPicker(){showWindow();win?.webContents.send('show-clipboard-history')}
+function registerClipboardShortcuts(){globalShortcut.unregisterAll();shortcutStatus={open:false,direct:[]};try{shortcutStatus.open=globalShortcut.register(clipboardSettings.openShortcut,showClipboardPicker)}catch{}if(clipboardSettings.directPaste)for(let i=1;i<=9;i+=1)try{if(globalShortcut.register(`Alt+${i}`,()=>{const item=clipboardItems[i-1];if(item&&writeClipboardItem(item))sendPasteKeystroke()}))shortcutStatus.direct.push(i)}catch{}win?.webContents.send('clipboard-shortcut-status',shortcutStatus)}
+function createTray(){tray?.destroy();tray=new Tray(path.join(__dirname,'assets','app-icon.ico'));tray.setToolTip('千幻桌面便笺');tray.setContextMenu(Menu.buildFromTemplate([{label:'显示便笺',click:showWindow},{label:'剪贴板历史',click:showClipboardPicker},{label:clipboardSettings.paused?'继续记录剪贴板':'暂停记录剪贴板',click:()=>{clipboardSettings.paused=!clipboardSettings.paused;saveClipboardSettings();createTray();notifyClipboard()}},{type:'separator'},{label:'退出',click:()=>app.quit()}]));tray.on('click',showWindow)}
+function loginOptions(openAtLogin){const portablePath=process.env.PORTABLE_EXECUTABLE_FILE;return{openAtLogin,path:portablePath||process.execPath,args:portablePath||app.isPackaged?[]:[path.resolve(__dirname)]}}
+function createWindow(){const area=screen.getPrimaryDisplay().workArea;win=new BrowserWindow({x:area.x+area.width-430,y:area.y+56,width:390,height:Math.min(720,area.height-100),minWidth:MIN_WINDOW_WIDTH,minHeight:MIN_WINDOW_HEIGHT,frame:false,transparent:true,backgroundColor:'#00000000',hasShadow:false,skipTaskbar:true,resizable:true,webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false}});win.setAlwaysOnTop(false);win.setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:false});win.loadFile('index.html')}
+app.whenReady().then(()=>{loadClipboardData();ipcMain.handle('choose-background',async()=>{const result=await dialog.showOpenDialog(win,{title:'选择背景图片',properties:['openFile'],filters:[{name:'图片',extensions:['png','jpg','jpeg','webp','gif','bmp']}]});return result.canceled?null:result.filePaths[0]});ipcMain.on('window-action',(_e,action)=>{if(!win)return;if(action==='close')app.quit();if(action==='minimize')win.hide();if(action==='toggle-top')win.setAlwaysOnTop(!win.isAlwaysOnTop())});ipcMain.handle('is-always-on-top',()=>win?.isAlwaysOnTop()??false);ipcMain.handle('is-devtools-opened',()=>win?.webContents.isDevToolsOpened()??false);ipcMain.handle('get-auto-launch',()=>app.getLoginItemSettings(loginOptions(false)).openAtLogin);ipcMain.handle('set-auto-launch',(_e,enabled)=>{app.setLoginItemSettings(loginOptions(Boolean(enabled)));return app.getLoginItemSettings(loginOptions(Boolean(enabled))).openAtLogin});ipcMain.on('resize-window',(_e,width,height)=>{if(!win)return;const b=win.getBounds();win.setBounds({x:b.x,y:b.y,width:Math.max(MIN_WINDOW_WIDTH,Math.round(width)),height:Math.max(MIN_WINDOW_HEIGHT,Math.round(height))},false)});
+ipcMain.handle('clipboard-history:get',()=>({items:publicItems(),settings:clipboardSettings,shortcuts:shortcutStatus}));ipcMain.handle('clipboard-history:settings',(_e,patch)=>{clipboardSettings={...clipboardSettings,...patch,maxItems:Math.max(10,Math.min(1000,Math.round(Number(patch.maxItems??clipboardSettings.maxItems)))),expireDays:Math.max(0,Math.min(3650,Math.round(Number(patch.expireDays??clipboardSettings.expireDays))))};pruneClipboard();saveClipboardSettings();saveClipboardHistory();registerClipboardShortcuts();createTray();notifyClipboard();return{settings:clipboardSettings,shortcuts:shortcutStatus}});ipcMain.handle('clipboard-history:pin',(_e,id)=>{const item=clipboardItems.find(i=>i.id===id);if(item)item.pinned=!item.pinned;pruneClipboard();saveClipboardHistory();notifyClipboard();return publicItems()});ipcMain.handle('clipboard-history:delete',(_e,id)=>{clipboardItems=clipboardItems.filter(i=>i.id!==id);saveClipboardHistory();notifyClipboard();return publicItems()});ipcMain.handle('clipboard-history:clear',()=>{clipboardItems=clipboardItems.filter(i=>i.pinned);saveClipboardHistory();notifyClipboard();return publicItems()});ipcMain.handle('clipboard-history:paste',(_e,id,plain)=>pasteItem(id,Boolean(plain),true));createWindow();createTray();registerClipboardShortcuts();startClipboardMonitor()});
+app.on('will-quit',()=>{clearInterval(clipboardTimer);globalShortcut.unregisterAll()});app.on('window-all-closed',()=>app.quit());
