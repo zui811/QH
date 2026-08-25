@@ -203,7 +203,6 @@ async function syncPinIcon(){try{$('pinBtn').textContent=await window.desktopAPI
 $('pinBtn').onclick=()=>{window.desktopAPI.windowAction('toggle-top');setTimeout(syncPinIcon,50)}; $('minBtn').onclick=()=>window.desktopAPI.windowAction('minimize'); $('closeBtn').onclick=()=>window.desktopAPI.windowAction('close');
 window.addEventListener('blur',async()=>{
   try{if(await window.desktopAPI.isDevToolsOpened())return}catch{}
-  if(state.currentType==='clipboard'){window.desktopAPI.windowAction('minimize');return}
   if(!$('categoryDialog').open&&!$('taskDialog').open)$('app').classList.add('display-only');
 });
 window.addEventListener('focus',()=>{$('app').classList.remove('display-only');syncPinIcon()});

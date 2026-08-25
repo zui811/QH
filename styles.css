@@ -1,4 +1,4 @@
-:root { --accent:#ffb86b; --text:#fff8e7; --panel:rgba(24,25,29,.78); --muted:rgba(255,255,255,.55); }
+:root { --accent:#ffb86b; --text:#fff8e7; --panel:rgba(24,25,29,.78); --muted:rgba(255,255,255,.55); --action:#afcbff; --action-hover:#d3e2ff; --action-text:#111827; }
 * { box-sizing:border-box; }
 html,body { margin:0; width:100%; height:100%; overflow:hidden; font-family:"Microsoft YaHei UI","Segoe UI",sans-serif; color:var(--text); }
 button,input,textarea,select { font:inherit; }
@@ -30,12 +30,13 @@ button { color:inherit; }
 .workspace { flex:1; min-width:0; padding:20px 19px 15px; display:flex; flex-direction:column; }
 .workspace-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
 .workspace h1 { margin:3px 0 0; font-size:21px; }.eyebrow { font-size:10px; opacity:.42; letter-spacing:.12em; }
-.done-btn,.primary-btn,.setting-row button { border:0; background:var(--accent); color:#29221b; border-radius:10px; padding:8px 13px; cursor:pointer; font-weight:700; font-size:12px; }
+.done-btn,.primary-btn,.setting-row button { border:0; background:var(--action); color:var(--action-text); border-radius:10px; padding:8px 13px; cursor:pointer; font-weight:700; font-size:12px; }
 .panel { display:none; flex:1; min-height:0; }.panel.active { display:flex; flex-direction:column; }
 #noteInput { flex:1; width:100%; border:0; outline:0; resize:none; background:transparent; color:inherit; line-height:1.7; font-size:15px; }
 #noteInput::placeholder { color:rgba(255,255,255,.28); }
 .note-footer { display:flex; justify-content:space-between; font-size:10px; opacity:.3; padding-top:8px; }
-.primary-btn { align-self:flex-start; margin-bottom:12px; }
+.primary-btn { align-self:flex-start; margin-bottom:12px; transition:background .18s ease,box-shadow .18s ease,border-color .18s ease; }
+.primary-btn:hover { background:var(--action-hover); box-shadow:0 0 16px rgba(130,170,255,.25); }
 .task-list { overflow:auto; display:grid; gap:8px; }
 .task-card { background:rgba(255,255,255,.065); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:11px; display:grid; grid-template-columns:auto 1fr auto; gap:9px; align-items:start; }
 .task-card.done { opacity:.42; }.task-card.done .task-title { text-decoration:line-through; }
@@ -52,7 +53,7 @@ button { color:inherit; }
 .custom-aspect-row.visible { display:flex; }
 .custom-aspect-row input { width:72px; min-width:0; border:1px solid rgba(255,255,255,.1); border-radius:7px; background:rgba(255,255,255,.07); color:inherit; padding:6px; text-align:center; }
 .resize-tip { font-size:10px; opacity:.35; margin-top:8px; text-align:center; }
-dialog { width:330px; color:#f8f3e9; background:#232429; border:1px solid rgba(255,255,255,.13); border-radius:17px; padding:0; box-shadow:0 25px 80px rgba(0,0,0,.55); } dialog::backdrop{background:rgba(0,0,0,.48);backdrop-filter:blur(4px)} dialog form{padding:22px} dialog h2{margin:0 0 18px;font-size:18px} dialog label{display:grid;gap:7px;font-size:11px;opacity:.78;margin:11px 0} dialog input,dialog textarea,dialog select{width:100%;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:rgba(255,255,255,.07);color:inherit;padding:9px;outline:none} dialog option{background:#2b2c31}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.dialog-actions button{border:0;border-radius:9px;padding:8px 15px;background:rgba(255,255,255,.1);cursor:pointer}.dialog-actions button:last-child{background:var(--accent);color:#29221b;font-weight:bold}
+dialog { width:330px; color:#f8f3e9; background:#232429; border:1px solid rgba(255,255,255,.13); border-radius:17px; padding:0; box-shadow:0 25px 80px rgba(0,0,0,.55); } dialog::backdrop{background:rgba(0,0,0,.48);backdrop-filter:blur(4px)} dialog form{padding:22px} dialog h2{margin:0 0 18px;font-size:18px} dialog label{display:grid;gap:7px;font-size:11px;opacity:.78;margin:11px 0} dialog input,dialog textarea,dialog select{width:100%;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:rgba(255,255,255,.07);color:inherit;padding:9px;outline:none} dialog option{background:#2b2c31}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.dialog-actions button{border:0;border-radius:9px;padding:8px 15px;background:rgba(255,255,255,.1);cursor:pointer}.dialog-actions button:last-child{background:var(--action);color:var(--action-text);font-weight:bold}.dialog-actions button:last-child:hover{background:var(--action-hover)}
 .compact .titlebar { opacity:0; height:20px; transition:.2s; }.compact .titlebar:hover{opacity:1}.compact .editor-mode{height:calc(100% - 20px)}
 .transparent-background.widget { background:transparent; border-color:transparent; box-shadow:none; }
 .transparent-background.widget::after { display:none; }
@@ -62,8 +63,9 @@ dialog { width:330px; color:#f8f3e9; background:#232429; border:1px solid rgba(2
 .transparent-background .type-tab.active,
 .transparent-background .category-item.active,
 .transparent-background .task-card,
-.transparent-background .primary-btn,
 .transparent-background .done-btn { background:transparent; border-color:transparent; box-shadow:none; }
+.transparent-background .primary-btn { background:rgba(175,203,255,.12); color:var(--action); border:1px solid rgba(175,203,255,.75); box-shadow:0 0 16px rgba(130,170,255,.25); }
+.transparent-background .primary-btn:hover { background:rgba(211,226,255,.2); color:var(--action-hover); border-color:var(--action-hover); }
 .transparent-background .task-card { padding-left:0; padding-right:0; }
 .transparent-background .brand-dot { box-shadow:none; }
 .display-only .sidebar,
