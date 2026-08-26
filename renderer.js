@@ -12,7 +12,7 @@ const initial = {
   ],
   notes: { work: '', life: '', ideas: '' },
   tasks: [], currentCategory: 'work', currentType: 'notes',
-  preferences: { confirmTaskDelete: true },
+  preferences: { confirmTaskDelete: true, taskDueReminder: true, taskReminderMinutes: 10 },
   appearance: { opacity: 78, textColor: '#fff8e7', background: '', compact: false, autoLaunch: true, aspectLock: false, aspectPreset: '9:16', customAspectWidth: 9, customAspectHeight: 16 }
 };
 let state;
@@ -29,6 +29,8 @@ state.tasks = Array.isArray(state.tasks) ? state.tasks.filter(task => validObjec
 state.appearance = { ...initial.appearance, ...(validObject(state.appearance) ? state.appearance : {}) };
 state.preferences = { ...initial.preferences, ...(validObject(state.preferences) ? state.preferences : {}) };
 state.preferences.confirmTaskDelete = state.preferences.confirmTaskDelete !== false;
+state.preferences.taskDueReminder = state.preferences.taskDueReminder !== false;
+state.preferences.taskReminderMinutes = Math.max(1, Math.min(1440, Math.round(Number(state.preferences.taskReminderMinutes) || 10)));
 state.appearance.opacity = Number.isFinite(Number(state.appearance.opacity)) ? Math.max(0, Math.min(100, Number(state.appearance.opacity))) : initial.appearance.opacity;
 state.appearance.textColor = /^#[0-9a-f]{6}$/i.test(state.appearance.textColor) ? state.appearance.textColor : initial.appearance.textColor;
 state.appearance.background = typeof state.appearance.background === 'string' ? state.appearance.background : '';
@@ -50,7 +52,8 @@ const reportLog = (level, message, details) => { try { window.desktopAPI.log(lev
 window.addEventListener('error',event=>reportLog('error','Renderer error',{message:event.message,line:event.lineno,column:event.colno}));
 window.addEventListener('unhandledrejection',event=>{const reason=event.reason;reportLog('error','Renderer unhandled rejection',{name:reason?.name,message:reason?.message||String(reason)})});
 const showSaveError = message => { const output = $('savedState'); if (output) { output.textContent = message; output.title = message; } };
-const persist = () => { try { localStorage.setItem('desktop-note-state', JSON.stringify(state)); return true; } catch (error) { showSaveError('本地保存失败'); reportLog('error', 'Local state save failed', { name: error?.name, message: error?.message }); return false; } };
+const syncTaskReminders = () => window.desktopAPI.syncTaskReminders({ enabled: state.preferences.taskDueReminder, minutes: state.preferences.taskReminderMinutes, tasks: state.tasks.map(({ id, categoryId, title, due, done }) => ({ id, categoryId, title, due, done })) });
+const persist = () => { try { localStorage.setItem('desktop-note-state', JSON.stringify(state)); syncTaskReminders(); return true; } catch (error) { showSaveError('本地保存失败'); reportLog('error', 'Local state save failed', { name: error?.name, message: error?.message }); return false; } };
 const currentCat = () => state.categories.find(c => c.id === state.currentCategory) || state.categories[0];
 const fmt = value => {
   if (!value) return '';
@@ -75,6 +78,8 @@ function applyAppearance() {
   $('app').classList.toggle('transparent-background', opacity === 0);
   $('opacityInput').value = opacity; $('opacityValue').value = `${opacity}%`; $('textColor').value = a.textColor; $('compactToggle').checked = !!a.compact; $('autoLaunchToggle').checked = a.autoLaunch !== false;
   $('taskDeleteConfirmToggle').checked=state.preferences.confirmTaskDelete!==false;
+  $('taskDueReminderToggle').checked=state.preferences.taskDueReminder!==false;
+  $('taskReminderMinutes').value=state.preferences.taskReminderMinutes;$('taskReminderMinutes').disabled=state.preferences.taskDueReminder===false;$('taskReminderMinutesRow').classList.toggle('disabled',state.preferences.taskDueReminder===false);
   $('aspectLockToggle').checked=!!a.aspectLock;$('aspectPreset').value=a.aspectPreset||'9:16';$('customAspectWidth').value=a.customAspectWidth||9;$('customAspectHeight').value=a.customAspectHeight||16;updateAspectControls();
 }
 function currentAspectRatio(){
@@ -145,7 +150,7 @@ function renderTasks() {
   if (!tasks.length) { list.innerHTML='<div style="text-align:center;opacity:.3;font-size:12px;padding:35px 0">暂无任务，给今天一个清晰的开始</div>'; return; }
   const labels={low:'低',medium:'中',high:'高',urgent:'紧急'};
   tasks.forEach(t=>{
-    const card=document.createElement('div');card.className=`task-card${t.done?' done':''}${selectedTaskIds.has(t.id)?' batch-selected':''}`;
+    const card=document.createElement('div');card.className=`task-card${t.done?' done':''}${selectedTaskIds.has(t.id)?' batch-selected':''}`;card.dataset.taskId=t.id;
     const times=[t.start&&`开始 ${fmt(t.start)}`,t.due&&`截止 ${fmt(t.due)}`].filter(Boolean).join(' · ');
     card.innerHTML=`<input class="batch-check" type="checkbox" aria-label="选择任务" ${selectedTaskIds.has(t.id)?'checked':''}><input class="task-check" type="checkbox" ${t.done?'checked':''}><div><div class="task-title"></div><div class="task-meta">顺序 ${t.order}${times?' · '+times:''}${t.note?'<br>':''}<span class="task-note"></span></div></div><div class="task-actions"><span class="severity ${t.severity}">${labels[t.severity]}</span><button class="task-edit" title="修改任务">✎</button><button class="task-delete" title="删除任务">×</button></div>`;
     card.querySelector('.task-title').textContent=t.title;card.querySelector('.task-note').textContent=t.note||'';
@@ -266,6 +271,9 @@ $('transparentBtn').onclick=()=>updateOpacity(0);
 $('textColor').oninput=e=>{state.appearance.textColor=e.target.value;persist();applyAppearance()}; $('compactToggle').onchange=e=>{state.appearance.compact=e.target.checked;persist();applyAppearance()};
 $('autoLaunchToggle').onchange=async e=>{const requested=e.target.checked;try{const enabled=await window.desktopAPI.setAutoLaunch(requested);e.target.checked=enabled;state.appearance.autoLaunch=enabled;persist()}catch{e.target.checked=!requested;e.target.title='无法修改开机启动设置';}};
 $('taskDeleteConfirmToggle').onchange=e=>{state.preferences.confirmTaskDelete=e.target.checked;persist()};
+$('taskDueReminderToggle').onchange=e=>{state.preferences.taskDueReminder=e.target.checked;persist();applyAppearance()};
+$('taskReminderMinutes').oninput=e=>e.target.setCustomValidity('');
+$('taskReminderMinutes').onchange=e=>{const minutes=Number(e.target.value);if(!Number.isInteger(minutes)||minutes<1||minutes>1440){e.target.setCustomValidity('请输入 1～1440 之间的整数分钟');e.target.reportValidity();return}state.preferences.taskReminderMinutes=minutes;persist()};
 $('openLogsBtn').onclick=async()=>{const output=$('logOpenState');try{const error=await window.desktopAPI.openLogDirectory();output.textContent=error?`打开失败：${error}`:'已打开日志目录'}catch(error){output.textContent='日志目录暂时无法打开';reportLog('error','Opening log directory failed',{name:error?.name,message:error?.message})}};
 $('aspectLockToggle').onchange=e=>{state.appearance.aspectLock=e.target.checked;persist();updateAspectControls();if(e.target.checked)resizeToCurrentAspect()};
 $('aspectPreset').onchange=e=>{state.appearance.aspectPreset=e.target.value;persist();updateAspectControls();resizeToCurrentAspect()};
@@ -339,7 +347,13 @@ window.desktopAPI.onClipboardHistoryChanged(items=>{clipboardItems=items;renderC
 window.desktopAPI.onShowClipboardHistory(()=>{state.currentType='clipboard';persist();render();setTimeout(()=>$('clipboardSearch').focus(),60)});
 window.desktopAPI.onClipboardShortcutStatus(status=>{clipboardShortcuts=status;renderClipboardShortcutStatus()});
 window.desktopAPI.onPersistenceError(message=>{showSaveError(message);$('clipboardShortcutStatus').textContent=message});
+window.desktopAPI.onOpenTaskReminder(task=>{
+  if(state.categories.some(category=>category.id===task?.categoryId))state.currentCategory=task.categoryId;
+  state.currentType='tasks';persist();render();
+  setTimeout(()=>{const card=[...document.querySelectorAll('.task-card')].find(item=>item.dataset.taskId===task?.id);if(!card)return;card.classList.add('reminder-target');card.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>card.classList.remove('reminder-target'),3000)},80);
+});
 render();
+syncTaskReminders();
 reportLog('info','Renderer initialized',{categoryCount:state.categories.length,taskCount:state.tasks.length});
 syncPinIcon();
 initAutoLaunch();

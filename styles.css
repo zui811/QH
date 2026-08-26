@@ -54,6 +54,7 @@ button { color:inherit; }
 .task-list.batch-mode .batch-check { display:block; }
 .task-list.batch-mode .task-check,.task-list.batch-mode .task-actions { display:none; }
 .task-card.batch-selected { border-color:rgba(175,203,255,.72); background:rgba(175,203,255,.12); box-shadow:0 0 14px rgba(130,170,255,.13); }
+.task-card.reminder-target { border-color:rgba(255,184,107,.9); box-shadow:0 0 0 2px rgba(255,184,107,.24),0 0 24px rgba(255,184,107,.2); }
 .task-card.done { opacity:.42; }.task-card.done .task-title { text-decoration:line-through; }
 .task-check { accent-color:var(--accent); margin-top:3px; }.task-title { font-size:13px; }.task-meta { font-size:10px; opacity:.48; margin-top:5px; line-height:1.5; }
 .severity { font-size:9px; padding:3px 6px; border-radius:99px; }.severity.low{background:#75d69c33;color:#8debb0}.severity.medium{background:#ffc86b33;color:#ffd58d}.severity.high{background:#ff8b6233;color:#ff9e7c}.severity.urgent{background:#ff527133;color:#ff7b91}
@@ -62,6 +63,8 @@ button { color:inherit; }
 .settings-panel { position:absolute; z-index:6; top:44px; right:12px; width:250px; max-height:calc(100% - 56px); overflow:auto; display:none; padding:17px; border-radius:15px; background:rgba(27,28,32,.96); box-shadow:0 15px 45px rgba(0,0,0,.45); border:1px solid rgba(255,255,255,.1); }
 .settings-panel.open { display:block; }.settings-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; }.settings-panel label { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; font-size:12px; margin:12px 0; opacity:.8; }.settings-panel input[type=range]{width:100%;accent-color:var(--accent)}.settings-panel input[type=color]{width:38px;height:28px;border:0;background:transparent}.setting-row{display:flex;gap:7px}.setting-row button{flex:1;background:rgba(255,255,255,.1);color:inherit;font-weight:400}.check-row{justify-content:flex-start!important}.transparent-btn{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:8px;background:rgba(255,255,255,.07);cursor:pointer;color:inherit}.transparent-btn:hover{background:rgba(255,255,255,.13)}
 .settings-divider { height:1px; background:rgba(255,255,255,.1); margin:15px 0 10px; }
+.settings-panel label.disabled { opacity:.32; }
+.reminder-minutes-input { width:72px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:#303137; color:inherit; padding:5px 7px; }
 .log-state { margin-top:7px; text-align:center; font-size:10px; opacity:.48; line-height:1.4; }
 #aspectPresetRow.disabled { opacity:.3; }
 #aspectPreset { border:1px solid rgba(255,255,255,.1); border-radius:7px; background:#303137; color:inherit; padding:5px 7px; }

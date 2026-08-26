@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, clipboard, globalShortcut, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, clipboard, globalShortcut, nativeImage, shell, Notification } = require('electron');
 const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { initLogger, log, getLogDirectory } = require('./logger');
+const { DEFAULT_REMINDER_MINUTES, normalizeReminderMinutes, normalizeReminderTasks, reminderKey, collectDueReminders } = require('./reminders');
 
 const MIN_WINDOW_WIDTH = 220;
 const MIN_WINDOW_HEIGHT = 260;
@@ -23,6 +24,12 @@ const DEFAULT_CLIPBOARD_SETTINGS = {
 let win;
 let tray;
 let clipboardTimer;
+let taskReminderTimer;
+let taskReminders = [];
+let taskRemindersEnabled = true;
+let taskReminderMinutes = DEFAULT_REMINDER_MINUTES;
+let notifiedTaskKeys = new Set();
+const activeTaskNotifications = new Set();
 let captureBusy = false;
 let lastClipboardHash = '';
 let pickerTargetHandle = '';
@@ -301,6 +308,46 @@ function pasteItem(id, plain = false, fromPicker = false, targetHandle = '') {
 }
 
 function showWindow() { if (!win) return; win.show(); win.restore(); win.focus(); }
+function checkTaskReminders(now = Date.now()) {
+  if (!taskRemindersEnabled || !Notification.isSupported()) return;
+  for (const task of collectDueReminders(taskReminders, notifiedTaskKeys, now, taskReminderMinutes)) {
+    const key = reminderKey(task);
+    notifiedTaskKeys.add(key);
+    const minutes = Math.max(1, Math.ceil((task.dueAt - now) / 60000));
+    try {
+      const notification = new Notification({
+        title: '任务即将到期',
+        body: `“${task.title}”将在 ${minutes} 分钟后到期`,
+        icon: path.join(__dirname, 'assets', 'app-icon.ico'),
+        silent: false
+      });
+      activeTaskNotifications.add(notification);
+      notification.on('click', () => {
+        showWindow();
+        win?.webContents.send('open-task-reminder', { id: task.id, categoryId: task.categoryId });
+      });
+      notification.on('close', () => activeTaskNotifications.delete(notification));
+      notification.show();
+      log('main', 'info', 'Task due reminder shown', { remainingMinutes: minutes });
+    } catch (error) {
+      notifiedTaskKeys.delete(key);
+      log('main', 'error', 'Task due reminder failed', error);
+    }
+  }
+}
+function syncTaskReminders(payload) {
+  taskRemindersEnabled = payload?.enabled !== false;
+  taskReminderMinutes = normalizeReminderMinutes(payload?.minutes);
+  taskReminders = normalizeReminderTasks(payload?.tasks);
+  const activeKeys = new Set(taskReminders.map(reminderKey));
+  notifiedTaskKeys = new Set([...notifiedTaskKeys].filter(key => activeKeys.has(key)));
+  checkTaskReminders();
+}
+function startTaskReminderMonitor() {
+  clearInterval(taskReminderTimer);
+  taskReminderTimer = setInterval(checkTaskReminders, 15000);
+  log('main', Notification.isSupported() ? 'info' : 'warn', 'Task reminder monitor started', { notificationsSupported: Notification.isSupported(), defaultLeadMinutes: DEFAULT_REMINDER_MINUTES });
+}
 function showClipboardPicker() {
   foregroundInfo(info => {
     pickerTargetHandle = info.handle;
@@ -377,10 +424,12 @@ if (!hasSingleInstanceLock) {
 } else {
   app.on('second-instance', () => { log('main', 'info', 'Second-instance launch redirected to the existing window'); showWindow(); });
   app.whenReady().then(() => {
+    app.setAppUserModelId('com.qianhuan.desktopnote');
     log('main', 'info', 'Electron app ready');
     loadClipboardData();
     log('main', 'info', 'Clipboard data loaded', { itemCount: clipboardItems.length, persistenceEnabled: clipboardSettings.persistHistory });
     ipcMain.on('renderer-log', (_event, level, message, details) => log('renderer', level, message, details));
+    ipcMain.on('task-reminders:sync', (_event, payload) => syncTaskReminders(payload));
     ipcMain.handle('open-log-directory', async () => {
       const error = await shell.openPath(getLogDirectory());
       if (error) log('main', 'error', 'Failed to open log directory', { error });
@@ -428,7 +477,8 @@ if (!hasSingleInstanceLock) {
     createTray();
     registerClipboardShortcuts();
     startClipboardMonitor();
+    startTaskReminderMonitor();
   });
-  app.on('will-quit', () => { log('main', 'info', 'Application shutting down'); clearInterval(clipboardTimer); globalShortcut.unregisterAll(); });
+  app.on('will-quit', () => { log('main', 'info', 'Application shutting down'); clearInterval(clipboardTimer); clearInterval(taskReminderTimer); activeTaskNotifications.clear(); globalShortcut.unregisterAll(); });
   app.on('window-all-closed', () => app.quit());
 }
